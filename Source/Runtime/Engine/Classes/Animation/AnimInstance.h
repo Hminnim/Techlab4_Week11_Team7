@@ -8,13 +8,7 @@ struct FAnimationUpdateContext;
 struct FPoseContext;
 class USkeletalMeshComponent;
 class APawn;
-
-struct FAnimNode_Base
-{
-	virtual ~FAnimNode_Base() = default;
-	virtual void Update(const FAnimationUpdateContext& Context) {}
-	virtual void Evaluate(FPoseContext& Output) {}
-};
+struct FAnimNode_Base;
 
 UCLASS()
 class UAnimInstance : public UObject
