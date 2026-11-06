@@ -30,4 +30,17 @@ struct FReferenceSkeleton
 	// 현재 포즈를 초기화할 때는 루트를 포함해 저장된 기준 포즈를 복사한다.
 	// RawRefBoneInfo와 개수 및 순서가 반드시 같아야 한다.
 	TArray<FTransform> RawRefBonePose;
+
+	int32 FindBoneIndex(const FName& BoneName) const
+	{
+		for (int32 i = 0; i < RawRefBoneInfo.Num(); ++i)
+		{
+			const FMeshBoneInfo& BoneInfo = RawRefBoneInfo[i];
+
+			if (BoneInfo.Name == BoneName)
+				return i;
+		}
+
+		return INDEX_NONE;
+	}
 };
