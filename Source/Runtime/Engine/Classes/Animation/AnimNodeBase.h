@@ -2,6 +2,7 @@
 
 #include "Core/Types.h"
 #include "AnimNodeData.h"
+#include "BonePose.h"
 
 struct FAnimNode_Base;
 struct FAnimInstanceProxy;
@@ -185,7 +186,7 @@ public:
 struct FPoseContext : public FAnimationBaseContext
 {
 public:
-
+	FCompactPose Pose;
 };
 
 struct FAnimNode_Base
