@@ -2,6 +2,8 @@
 #include "SkeletalMeshComponent.h"
 #include "Engine/SkeletalMeshSceneProxy.h"
 #include "Collision/Ray.h"
+#include "Engine/Classes/Animation/AnimSequence.h"				// TEMP
+#include "Engine/Classes/Animation/Test/AnimSequenceTest.h"		// TEMP
 
 FPrimitiveSceneProxy* USkeletalMeshComponent::CreateSceneProxy()
 {
@@ -23,6 +25,24 @@ void USkeletalMeshComponent::SetSkeletalMesh(USkeletalMesh* InMesh)
 	MeshObject.reset();
 	SkeletalMesh = InMesh;
 	InitializePose();
+
+	if (SkeletalMesh)
+	{
+		UAnimSequence* Sequence = AnimTest::CreateTestAnimSequence(SkeletalMesh->GetRefSkeleton());
+		HTR_LOG(Info, "[Test] length={} keys={} fps={}",
+			Sequence->GetPlayLength(), Sequence->GetNumberOfSampledKeys(), Sequence->GetSamplingFrameRate().AsDecimal());
+
+		delete Sequence->GetDataModel();
+		HTR_LOG(Info, "[Test] after model delete: model is null={} length={}",
+			Sequence->GetDataModel() == nullptr, Sequence->GetPlayLength());
+
+		// 직접 삭제 경로
+		delete Sequence;
+
+		// 종료 일괄 삭제 경로: 일부러 지우지 않는다. 엔진을 종료할 때 크래시가 없어야 한다.
+		AnimTest::CreateTestAnimSequence(SkeletalMesh->GetRefSkeleton());
+	}
+
 	// 메시가 바뀌면 재질 슬롯도 달라지므로 이전 덮어쓰기를 비우고 렌더 상태를 갱신한다.
 	ClearOverrideMaterials();
 	OnTransformDirty();
