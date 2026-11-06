@@ -4,8 +4,6 @@
 #include "Engine/Classes/Animation/AnimTypes.h"
 #include "AnimInstance.generated.h"
 
-struct FAnimationUpdateContext;
-struct FPoseContext;
 class USkeletalMeshComponent;
 class APawn;
 struct FAnimNode_Base;

@@ -29,7 +29,7 @@ public:
 
 UCLASS()
 class UAnimSequenceBase : public UAnimationAsset
-{
+{      
 	GENERATED_BODY()
 
 public:
