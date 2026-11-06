@@ -43,6 +43,23 @@ bool FAnimStateMachine::AddTransition(int32 FromState, int32 ToState, std::funct
 	return true;
 }
 
+bool FAnimStateMachine::AddAnyStateTransition(int32 ToState, std::function<bool()> Rule)
+{
+	if (bStarted || !Rule || !IsValidState(ToState))
+	{
+		return false;
+	}
+
+	FAnimTransitionDesc Transition;
+	Transition.FromState = -1; // 특정 출발 상태가 없는 공통 전이
+	Transition.ToState = ToState;
+	Transition.Rule = std::move(Rule);
+
+	const int32 TransitionIndex = static_cast<int32>(Transitions.Add(std::move(Transition)));
+	AnyStateTransitions.Add(TransitionIndex);
+	return true;
+}
+
 bool FAnimStateMachine::Start(int32 InitialState)
 {
 	if (bStarted || !IsValidState(InitialState))
@@ -64,6 +81,23 @@ void FAnimStateMachine::Update(float DeltaTime)
 	}
 
 	ElapsedTime += DeltaTime;
+
+	// 공통 전이를 먼저 검사한다. 현재 상태로의 재진입은 아직 지원하지 않는다.
+	for (int32 TransitionIndex : AnyStateTransitions)
+	{
+		const FAnimTransitionDesc& Transition = Transitions[TransitionIndex];
+		if (Transition.ToState == CurrentState)
+		{
+			continue;
+		}
+
+		if (Transition.Rule && Transition.Rule())
+		{
+			CurrentState = Transition.ToState;
+			ElapsedTime = 0.0f;
+			return;
+		}
+	}
 
 	// 규칙을 평가할 상태를 고정
 	const int32 SourceState = CurrentState;

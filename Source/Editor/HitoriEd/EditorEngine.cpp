@@ -72,17 +72,24 @@ namespace
 	void VerifyAnimStateMachine()
 	{
 		bool bAttackRequested = false;
+		bool bHitRequested = false;
 		FAnimStateMachine Machine;
 
 		const int32 Locomotion = Machine.AddState(FName("Locomotion"));
 		const int32 Attack = Machine.AddState(FName("Attack"));
+		const int32 Hit = Machine.AddState(FName("Hit"));
 		const bool bTransitionAdded = Machine.AddTransition(Locomotion, Attack,
 			[&bAttackRequested]() { return bAttackRequested; });
 		// 실제 클립 종료 정보가 연결되기 전까지 1초 타이머로 복귀를 확인한다.
 		const bool bReturnTransitionAdded = Machine.AddTransition(Attack, Locomotion,
 			[&Machine]() { return Machine.GetStateElapsedTime() >= 1.0f; });
+		const bool bHitTransitionAdded = Machine.AddAnyStateTransition(Hit,
+			[&bHitRequested]() { return bHitRequested; });
+		const bool bHitReturnTransitionAdded = Machine.AddTransition(Hit, Locomotion,
+			[&Machine]() { return Machine.GetStateElapsedTime() >= 1.0f; });
 
-		if (!bTransitionAdded || !bReturnTransitionAdded || !Machine.Start(Locomotion))
+		if (!bTransitionAdded || !bReturnTransitionAdded || !bHitTransitionAdded
+			|| !bHitReturnTransitionAdded || !Machine.Start(Locomotion))
 		{
 			HTR_LOG(Error, "[AnimSM] Setup failed");
 			return;
@@ -119,6 +126,71 @@ namespace
 		if (Machine.GetCurrentState() != Locomotion)
 		{
 			HTR_LOG(Error, "[AnimSM] Attack request was not cleared");
+			return;
+		}
+
+		// 공격과 피격이 동시에 들어오면 일반 공격 전이보다 피격이 우선한다.
+		bAttackRequested = true;
+		bHitRequested = true;
+		Machine.Update(0.016f);
+		HTR_LOG(Info, "[AnimSM] Hit from Locomotion: {}", Machine.GetCurrentStateName().ToString());
+		if (Machine.GetCurrentState() != Hit || Machine.GetStateElapsedTime() != 0.0f)
+		{
+			HTR_LOG(Error, "[AnimSM] Any State priority verification failed");
+			return;
+		}
+
+		bAttackRequested = false;
+		// 피격 조건이 유지되어도 Hit 자신으로 전환하며 시간을 초기화하지 않는다.
+		Machine.Update(0.5f);
+		const bool bHitTimeAdvanced = Machine.GetCurrentState() == Hit
+			&& Machine.GetStateElapsedTime() == 0.5f;
+		bHitRequested = false;
+		Machine.Update(0.5f);
+		HTR_LOG(Info, "[AnimSM] Hit finished: {}", Machine.GetCurrentStateName().ToString());
+		if (!bHitTimeAdvanced || Machine.GetCurrentState() != Locomotion)
+		{
+			HTR_LOG(Error, "[AnimSM] Hit self-transition or return verification failed");
+			return;
+		}
+
+		bAttackRequested = true;
+		Machine.Update(0.016f);
+		bAttackRequested = false;
+		Machine.Update(0.25f);
+		if (Machine.GetCurrentState() != Attack)
+		{
+			HTR_LOG(Error, "[AnimSM] Attack interruption setup failed");
+			return;
+		}
+
+		bHitRequested = true;
+		Machine.Update(0.016f);
+		HTR_LOG(Info, "[AnimSM] Hit interrupted Attack: {}", Machine.GetCurrentStateName().ToString());
+		if (Machine.GetCurrentState() != Hit || Machine.GetStateElapsedTime() != 0.0f)
+		{
+			HTR_LOG(Error, "[AnimSM] Attack interruption verification failed");
+			return;
+		}
+
+		bHitRequested = false;
+		Machine.Update(1.0f);
+		if (Machine.GetCurrentState() != Locomotion)
+		{
+			HTR_LOG(Error, "[AnimSM] Hit return verification failed");
+			return;
+		}
+
+		// Attack 자동 복귀와 피격 조건이 동시에 참인 경우에도 피격이 우선한다.
+		bAttackRequested = true;
+		Machine.Update(0.016f);
+		bAttackRequested = false;
+		bHitRequested = true;
+		Machine.Update(1.0f);
+		HTR_LOG(Info, "[AnimSM] Hit at Attack end: {}", Machine.GetCurrentStateName().ToString());
+		if (Machine.GetCurrentState() != Hit || Machine.GetStateElapsedTime() != 0.0f)
+		{
+			HTR_LOG(Error, "[AnimSM] Any State priority at Attack end failed");
 			return;
 		}
 
