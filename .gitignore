@@ -452,6 +452,7 @@ editor.ini
 /Intermediate/
 
 AGENTS.md
+CLAUDE.md
 
 # 빌드 결과 exe가 루트 등에 커밋되지 않게 한다. premake 실행 파일만 예외
 *.exe
