@@ -2,6 +2,18 @@
 
 #include "Render/ReferenceSkeleton.h"
 
+// 쿼터니언 회전 + 위치 + 스케일 -> 포즈용 FTransform
+inline FTransform MakeBoneTransform(const FVector& Translation, const FQuat& Rotation, const FVector& Scale)
+{
+	return FTransform(Rotation.Normalized().ToFRotator(), Translation, Scale);
+}
+
+// 포즈용 FTransform -> 회전 쿼터니언
+inline FQuat GetBoneRotation(const FTransform& BoneTransform)
+{
+	return BoneTransform.Rotation.Quaternion();
+}
+
 struct FCompactPose
 {
 	// 스켈레톤 지정
@@ -25,6 +37,7 @@ struct FCompactPose
 
 	inline bool IsValid() const { return RefSkeleton && Bones.Num() == RefSkeleton->RawRefBonePose.Num(); }
 	inline int32 GetNumBones() const { return Bones.Num(); }
+	inline const FReferenceSkeleton* GetRefSkeleton() const { return RefSkeleton; }
 	inline FTransform& operator[](const int32 BoneIndex) { return Bones[BoneIndex]; }
 	inline const FTransform& operator[] (const int32 BoneIndex) const { return Bones[BoneIndex]; }
 
