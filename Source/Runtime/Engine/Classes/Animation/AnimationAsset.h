@@ -3,6 +3,12 @@
 #include "Asset/RenderAsset.h"
 #include "AnimationAsset.generated.h"
 
+// 시퀀스에서 포즈를 뽑을 때 넘기는 조건
+struct FAnimExtractContext
+{
+	float CurrentTime = 0.0f;	// 샘플링할 에셋 시간 (초)
+};
+
 UCLASS()
 class UAnimationAsset : public URenderAsset
 {
