@@ -14,8 +14,13 @@ FQuat::FQuat(float InX, float InY, float InZ, float InW)
 }
 
 FQuat::FQuat(FRotator InRoatator)
-{
-	// TODO
+{	
+	FQuat Result = InRoatator.Quaternion();
+
+	this->X = Result.X;
+	this->Y = Result.Y;
+	this->Z = Result.Z;
+	this->W = Result.W;
 }
 
 /* Functions */
@@ -245,4 +250,29 @@ FQuat FQuat::MakeFromEuler(float RollRadian, float PitchRadian, float YawRadian)
 		// W
 		CR * CP * CY + SR * SP * SY
 	);
+}
+
+FQuat FQuat::Slerp(const FQuat& A, const FQuat& B, float Alpha)
+{
+	float RawCosom = A.X * B.X + A.Y * B.Y + A.Z * B.Z + A.W * B.W;
+	
+	const float Sign = RawCosom >= 0.0f ? 1.0f : -1.0f;
+	RawCosom *= Sign;
+
+	float Scale0 = 1.0f - Alpha;
+	float Scale1 = Alpha * Sign;
+
+	if(RawCosom < 0.9999f)
+	{
+		const float Omega = std::acos(RawCosom);
+		const float InvSin = 1.0f / std::sin(Omega);
+		Scale0 = std::sin(Scale0 * Omega) * InvSin;
+		Scale1 = std::sin(Scale1 * Omega) * InvSin;
+	}
+
+	return FQuat(
+		Scale0 * A.X + Scale1 * B.X,
+		Scale0 * A.Y + Scale1 * B.Y,
+		Scale0 * A.Z + Scale1 * B.Z,
+		Scale0 * A.W + Scale1 * B.W).Normalized();
 }
