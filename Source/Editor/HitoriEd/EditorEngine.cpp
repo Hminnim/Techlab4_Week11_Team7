@@ -12,6 +12,7 @@
 #include "Render/GeometryGenerator.h"
 
 #include "Engine/World.h"
+#include "Engine/Classes/Animation/AnimStateMachine.h"
 #include "Engine/Level.h"
 #include "Engine/GameInstance.h"
 #include "Engine/GameViewportClient.h"
@@ -65,6 +66,42 @@ namespace
 	DECLARE_CYCLE_STAT("Capture World", STAT_CaptureWorld);
 	DECLARE_CYCLE_STAT("Build Render Queue", STAT_BuildRenderQueue);
 	DECLARE_CYCLE_STAT("ImGui", STAT_ImGui);
+
+#if defined(ENGINE_DEBUG)
+	// 애니메이션 에셋 없이 상태 전환 코어만 확인하는 임시 실행 예제.
+	void VerifyAnimStateMachine()
+	{
+		bool bAttackRequested = false;
+		FAnimStateMachine Machine;
+
+		const int32 Locomotion = Machine.AddState(FName("Locomotion"));
+		const int32 Attack = Machine.AddState(FName("Attack"));
+		const bool bTransitionAdded = Machine.AddTransition(Locomotion, Attack,
+			[&bAttackRequested]() { return bAttackRequested; });
+
+		if (!bTransitionAdded || !Machine.Start(Locomotion))
+		{
+			HTR_LOG(Error, "[AnimSM] Setup failed");
+			return;
+		}
+
+		Machine.Update(0.016f);
+		HTR_LOG(Info, "[AnimSM] Before input: {}", Machine.GetCurrentStateName().ToString());
+		const bool bStayedInLocomotion = Machine.GetCurrentState() == Locomotion;
+
+		bAttackRequested = true;
+		Machine.Update(0.016f);
+		HTR_LOG(Info, "[AnimSM] After input: {}", Machine.GetCurrentStateName().ToString());
+
+		if (!bStayedInLocomotion || Machine.GetCurrentState() != Attack)
+		{
+			HTR_LOG(Error, "[AnimSM] Verification failed");
+			return;
+		}
+
+		HTR_LOG(Info, "[AnimSM] Verification passed");
+	}
+#endif
 }
 
 #include "Core/SplashScreen.h"
@@ -113,6 +150,10 @@ bool UEditorEngine::Init()
 
 	OutputLogPanel = EditorUI->AddEditorPanel<FOutputLogPanel>();
 	FLog::AddSink(OutputLogPanel);
+
+#if defined(ENGINE_DEBUG)
+	VerifyAnimStateMachine();
+#endif
 	HTR_LOG(Info, "Editor Initialize...");
 
 	// 테스트 코드 
