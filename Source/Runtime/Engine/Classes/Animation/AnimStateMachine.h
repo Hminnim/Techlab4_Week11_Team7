@@ -12,6 +12,8 @@ public:
 	bool AddTransition(int32 FromState, int32 ToState, std::function<bool()> Rule);
 	// 현재 상태와 관계없이 일반 전이보다 먼저 검사한다.
 	bool AddAnyStateTransition(int32 ToState, std::function<bool()> Rule);
+	// 실행 중에도 변경 가능하며, 해당 상태를 향하는 Any State 전이에 적용한다.
+	bool SetStateRestartOnReentry(int32 StateIndex, bool bEnabled);
 
 	bool Start(int32 InitialState);
 	void Update(float DeltaTime);

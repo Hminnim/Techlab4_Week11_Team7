@@ -10,6 +10,7 @@ struct FAnimStateDesc
 {
 	FName Name;
 	TArray<int32> ExitTransitions;
+	bool bRestartOnReentry = false;
 };
 
 struct FAnimTransitionDesc

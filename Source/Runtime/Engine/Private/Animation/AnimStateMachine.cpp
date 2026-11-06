@@ -60,6 +60,17 @@ bool FAnimStateMachine::AddAnyStateTransition(int32 ToState, std::function<bool(
 	return true;
 }
 
+bool FAnimStateMachine::SetStateRestartOnReentry(int32 StateIndex, bool bEnabled)
+{
+	if (!IsValidState(StateIndex))
+	{
+		return false;
+	}
+
+	States[StateIndex].bRestartOnReentry = bEnabled;
+	return true;
+}
+
 bool FAnimStateMachine::Start(int32 InitialState)
 {
 	if (bStarted || !IsValidState(InitialState))
@@ -82,11 +93,11 @@ void FAnimStateMachine::Update(float DeltaTime)
 
 	ElapsedTime += DeltaTime;
 
-	// 공통 전이를 먼저 검사한다. 현재 상태로의 재진입은 아직 지원하지 않는다.
+	// 공통 전이를 먼저 검사한다. 재진입 시 대상 상태의 재시작 설정을 따른다.
 	for (int32 TransitionIndex : AnyStateTransitions)
 	{
 		const FAnimTransitionDesc& Transition = Transitions[TransitionIndex];
-		if (Transition.ToState == CurrentState)
+		if (Transition.ToState == CurrentState && !States[CurrentState].bRestartOnReentry)
 		{
 			continue;
 		}

@@ -194,6 +194,44 @@ namespace
 			return;
 		}
 
+		// 기본값 OFF: 새 피격 요청이 와도 이미 진행 중인 Hit의 시간은 유지한다.
+		bHitRequested = false;
+		Machine.Update(0.25f);
+		bHitRequested = true;
+		Machine.Update(0.25f);
+		bHitRequested = false;
+		HTR_LOG(Info, "[AnimSM] Hit restart OFF: {}s", Machine.GetStateElapsedTime());
+		if (Machine.GetCurrentState() != Hit || Machine.GetStateElapsedTime() != 0.5f)
+		{
+			HTR_LOG(Error, "[AnimSM] Disabled Hit restart verification failed");
+			return;
+		}
+
+		Machine.SetStateRestartOnReentry(Hit, true);
+		Machine.Update(0.25f);
+		const bool bTogglePreservedTime = Machine.GetStateElapsedTime() == 0.75f;
+		bHitRequested = true;
+		Machine.Update(0.016f);
+		bHitRequested = false; // 한 번의 피격 요청을 처리한 뒤 해제한다.
+		HTR_LOG(Info, "[AnimSM] Hit restart ON: {}s", Machine.GetStateElapsedTime());
+		if (!bTogglePreservedTime || Machine.GetCurrentState() != Hit || Machine.GetStateElapsedTime() != 0.0f)
+		{
+			HTR_LOG(Error, "[AnimSM] Enabled Hit restart verification failed");
+			return;
+		}
+
+		Machine.SetStateRestartOnReentry(Hit, false);
+		bHitRequested = true;
+		Machine.Update(0.5f);
+		bHitRequested = false;
+		const bool bRestartDisabledAgain = Machine.GetStateElapsedTime() == 0.5f;
+		Machine.Update(0.5f);
+		if (!bRestartDisabledAgain || Machine.GetCurrentState() != Locomotion)
+		{
+			HTR_LOG(Error, "[AnimSM] Hit restart toggle OFF or return verification failed");
+			return;
+		}
+
 		HTR_LOG(Info, "[AnimSM] Verification passed");
 	}
 #endif
