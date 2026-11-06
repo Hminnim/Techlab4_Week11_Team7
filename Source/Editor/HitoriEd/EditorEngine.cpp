@@ -78,8 +78,11 @@ namespace
 		const int32 Attack = Machine.AddState(FName("Attack"));
 		const bool bTransitionAdded = Machine.AddTransition(Locomotion, Attack,
 			[&bAttackRequested]() { return bAttackRequested; });
+		// 실제 클립 종료 정보가 연결되기 전까지 1초 타이머로 복귀를 확인한다.
+		const bool bReturnTransitionAdded = Machine.AddTransition(Attack, Locomotion,
+			[&Machine]() { return Machine.GetStateElapsedTime() >= 1.0f; });
 
-		if (!bTransitionAdded || !Machine.Start(Locomotion))
+		if (!bTransitionAdded || !bReturnTransitionAdded || !Machine.Start(Locomotion))
 		{
 			HTR_LOG(Error, "[AnimSM] Setup failed");
 			return;
@@ -96,6 +99,26 @@ namespace
 		if (!bStayedInLocomotion || Machine.GetCurrentState() != Attack)
 		{
 			HTR_LOG(Error, "[AnimSM] Verification failed");
+			return;
+		}
+
+		bAttackRequested = false;
+		Machine.Update(0.5f);
+		HTR_LOG(Info, "[AnimSM] After 0.5s: {}", Machine.GetCurrentStateName().ToString());
+		const bool bStayedInAttack = Machine.GetCurrentState() == Attack;
+
+		Machine.Update(0.5f);
+		HTR_LOG(Info, "[AnimSM] After 1.0s: {}", Machine.GetCurrentStateName().ToString());
+		if (!bStayedInAttack || Machine.GetCurrentState() != Locomotion || Machine.GetStateElapsedTime() != 0.0f)
+		{
+			HTR_LOG(Error, "[AnimSM] Automatic return verification failed");
+			return;
+		}
+
+		Machine.Update(0.016f);
+		if (Machine.GetCurrentState() != Locomotion)
+		{
+			HTR_LOG(Error, "[AnimSM] Attack request was not cleared");
 			return;
 		}
 
