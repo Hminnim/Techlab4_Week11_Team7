@@ -9,6 +9,7 @@ struct FStaticMeshData;
 struct FTransform;
 struct FVector4;
 struct FMatrix;
+struct FAnimSequenceImportData;
 
 // SDK 전체를 헤더에 Include하지 않도록 전방 선언한다.
 namespace fbxsdk
@@ -40,6 +41,9 @@ public:
 
 	// 메시의 Skin 연결 여부를 기준으로 임포트할 타입을 판별한다.
 	static bool DetectMeshType(const FString& Path, EFbxMeshType& OutType, FString& OutError);
+
+	// 첫번째 AnimStack을 프레임마다 샘플링해서 Bone별 키 트랙으로 생성.
+	static bool LoadAnimation(const FString& Path, FAnimSequenceImportData& OutData, FString& OutError);
 
 private:
 	// FBX 파일을 읽고 Manager가 소유하는 Scene을 생성한다.

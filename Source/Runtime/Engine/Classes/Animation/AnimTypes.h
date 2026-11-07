@@ -30,6 +30,15 @@ struct FBoneAnimationTrack
 	FRawAnimSequenceTrack InternalTrack; // 실제 애니메이션 데이터
 };
 
+// 임포터가 읽은 애니메이션 원본.
+// UAnimDataModel을 채우는데 사용.
+struct FAnimSequenceImportData
+{
+	FFrameRate FrameRate = FFrameRate(30, 1);
+	int32 NumberOfFrames = 0;					// 키 수 = NumberOfFrames + 1
+	TArray<FBoneAnimationTrack> Tracks;			// 본마다 한개
+};
+
 struct FAnimationCurveData
 {
 };
