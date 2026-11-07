@@ -22,6 +22,7 @@ public:
 	void TriggerAnimNotifies(float DeltaSeconds) {}
 
 	USkeletalMeshComponent* GetSkelMeshComponent() const { return OwningComponent; }
+	FAnimNode_Base* GetRootNode() const { return RootNode; }
 	APawn* TryGetPawnOwner() const { return nullptr; }
 
 protected:

@@ -16,7 +16,9 @@ public:
 	bool SetStateRestartOnReentry(int32 StateIndex, bool bEnabled);
 
 	bool Start(int32 InitialState);
-	void Update(float DeltaTime);
+	void Reset();
+	// 다른 상태로 전환하거나 현재 상태를 재시작했으면 true를 반환한다.
+	bool Update(float DeltaTime);
 
 	int32 GetCurrentState() const { return CurrentState; }
 	FName GetCurrentStateName() const;
@@ -29,6 +31,7 @@ private:
 	TArray<FAnimTransitionDesc> Transitions;
 	TArray<int32> AnyStateTransitions;
 
+	int32 InitialState = -1;
 	int32 CurrentState = -1;
 	float ElapsedTime = 0.0f;
 	bool bStarted = false;
