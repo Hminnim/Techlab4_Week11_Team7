@@ -47,6 +47,7 @@ void FLuaScriptManager::Initialize()
 
 void FLuaScriptManager::Shutdown()
 {
+	if (State) FLuaBindings::ReleaseAnimationStateMachines(*State);
 	delete State;
 	State = nullptr;
 }

@@ -11,6 +11,9 @@ namespace FLuaBindings
 {
 	// FVector, FRotator, AActor(안전 핸들), Input, Time
 	void Register(sol::state& Lua);
+	void RegisterAnimation(sol::state& Lua);
+	// Lua VM을 닫기 전에 해당 VM의 애니메이션 콜백을 해제한다.
+	void ReleaseAnimationStateMachines(sol::state& Lua);
 
 	// Lua에서 Destroy를 부른 액터를 실제로 지운다. UWorld::Tick이 UpdateOverlaps() 직후 1회 호출.
 	void FlushPendingDestroy(UWorld* World);

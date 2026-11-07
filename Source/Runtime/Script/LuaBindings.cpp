@@ -32,6 +32,7 @@
 #include "Asset/AssetManager.h"
 #include "Components/AudioComponent.h"
 #include "Engine/Classes/Sound/SoundWave.h"
+#include "Engine/Classes/Animation/AnimStateMachine.h"
 #include "Camera/CameraShakeBase.h"
 
 #include "LevelSequence/LevelSequenceActor.h" 
@@ -55,6 +56,76 @@ namespace
 			? Ref->Get()
 			: nullptr;
 	}
+
+	struct FLuaAnimStateMachineRef
+	{
+		uint64 Generation = 0;
+	};
+
+	struct FLuaAnimStateMachineBinding
+	{
+		FLuaActorRef Owner;
+		lua_State* LuaState = nullptr;
+		uint64 Generation = 0;
+		FAnimStateMachine Machine;
+		bool bUpdating = false;
+	};
+
+	TArray<TUniquePtr<FLuaAnimStateMachineBinding>> AnimStateMachines;
+	uint64 NextAnimGeneration = 1;
+
+	FLuaAnimStateMachineBinding* FindAnimStateMachine(const FLuaAnimStateMachineRef& Ref)
+	{
+		for (const auto& Binding : AnimStateMachines)
+		{
+			if (Binding->Generation != Ref.Generation) continue;
+			uint32 LiveUUID = 0;
+			// 삭제된 액터나 월드의 포인터를 역참조하지 않고 객체 생존부터 확인한다.
+			return TryGetLiveObjectUUID(Binding->Owner.Ptr, nullptr, LiveUUID)
+				&& LiveUUID == Binding->Owner.UUID ? Binding.get() : nullptr;
+		}
+		return nullptr;
+	}
+
+	FLuaAnimStateMachineBinding& GetAnimStateMachine(const FLuaAnimStateMachineRef& Ref, bool bReadOnly = false)
+	{
+		FLuaAnimStateMachineBinding* Binding = FindAnimStateMachine(Ref);
+		if (!Binding) throw sol::error("Animation state machine was replaced or its actor was destroyed.");
+		if (Binding->bUpdating && !bReadOnly)
+			throw sol::error("Cannot mutate or recursively update an animation state machine from its rule.");
+		return *Binding;
+	}
+
+	std::function<bool()> MakeLuaTransitionRule(sol::protected_function InFunction)
+	{
+		if (!InFunction.valid()) throw sol::error("Animation transition rule must be a function.");
+		// 코루틴에서 등록해도 종료된 코루틴 스택을 붙잡지 않도록 메인 스레드 참조를 쓴다.
+		sol::main_protected_function Function = std::move(InFunction);
+		return [Function = std::move(Function)]() -> bool
+		{
+			sol::protected_function_result Result = Function();
+			if (!Result.valid())
+			{
+				sol::error Error = Result;
+				HTR_LOG(Error, "[Lua Animation] Transition rule error: {}", Error.what());
+				return false;
+			}
+			if (Result.return_count() > 0)
+			{
+				sol::object Value = Result.get<sol::object>();
+				if (Value.get_type() == sol::type::boolean) return Value.as<bool>();
+			}
+			HTR_LOG(Error, "[Lua Animation] Transition rule must return a boolean.");
+			return false;
+		};
+	}
+
+	struct FScopedAnimUpdate
+	{
+		explicit FScopedAnimUpdate(bool& InUpdating) : bUpdating(InUpdating) { bUpdating = true; }
+		~FScopedAnimUpdate() { bUpdating = false; }
+		bool& bUpdating;
+	};
 
 
 	UWorld* WorldFromEnv(sol::this_environment& ThisEnv, const char* FuncName)
@@ -946,6 +1017,82 @@ namespace
 
 namespace FLuaBindings
 {
+	void RegisterAnimation(sol::state& Lua)
+	{
+		Lua.new_usertype<FLuaAnimStateMachineRef>("AnimStateMachine", sol::no_constructor,
+			"IsValid", [](const FLuaAnimStateMachineRef& Ref) { return FindAnimStateMachine(Ref) != nullptr; },
+			"AddState", [](const FLuaAnimStateMachineRef& Ref, const FString& Name)
+			{
+				return GetAnimStateMachine(Ref).Machine.AddState(FName(Name));
+			},
+			"AddTransition", [](const FLuaAnimStateMachineRef& Ref, int32 From, int32 To, sol::protected_function Rule)
+			{
+				return GetAnimStateMachine(Ref).Machine.AddTransition(From, To, MakeLuaTransitionRule(std::move(Rule)));
+			},
+			"AddAnyStateTransition", [](const FLuaAnimStateMachineRef& Ref, int32 To, sol::protected_function Rule)
+			{
+				return GetAnimStateMachine(Ref).Machine.AddAnyStateTransition(To, MakeLuaTransitionRule(std::move(Rule)));
+			},
+			"SetStateRestartOnReentry", [](const FLuaAnimStateMachineRef& Ref, int32 State, bool bEnabled)
+			{
+				return GetAnimStateMachine(Ref).Machine.SetStateRestartOnReentry(State, bEnabled);
+			},
+			"Start", [](const FLuaAnimStateMachineRef& Ref, int32 State)
+			{
+				return GetAnimStateMachine(Ref).Machine.Start(State);
+			},
+			"Update", [](const FLuaAnimStateMachineRef& Ref, float DeltaTime)
+			{
+				if (!std::isfinite(DeltaTime) || DeltaTime < 0.0f)
+					throw sol::error("Animation DeltaTime must be finite and non-negative.");
+				auto& Binding = GetAnimStateMachine(Ref);
+				FScopedAnimUpdate UpdateGuard(Binding.bUpdating);
+				return Binding.Machine.Update(DeltaTime);
+			},
+			"GetCurrentState", [](const FLuaAnimStateMachineRef& Ref)
+			{
+				return GetAnimStateMachine(Ref, true).Machine.GetCurrentState();
+			},
+			"GetCurrentStateName", [](const FLuaAnimStateMachineRef& Ref)
+			{
+				return GetAnimStateMachine(Ref, true).Machine.GetCurrentStateName().ToString();
+			},
+			"GetStateElapsedTime", [](const FLuaAnimStateMachineRef& Ref)
+			{
+				return GetAnimStateMachine(Ref, true).Machine.GetStateElapsedTime();
+			});
+
+		Lua.set_function("CreateAnimStateMachine", [](sol::this_environment Env, sol::this_main_state MainState)
+		{
+			AActor* Owner = OwnerFromEnv(Env);
+			if (!Owner) throw sol::error("CreateAnimStateMachine requires a live actor script context.");
+			for (int32 Index = AnimStateMachines.Num() - 1; Index >= 0; --Index)
+			{
+				if (AnimStateMachines[Index]->Owner.Ptr != Owner) continue;
+				if (AnimStateMachines[Index]->bUpdating)
+					throw sol::error("Cannot replace an animation state machine from its rule.");
+				AnimStateMachines.RemoveAt(Index);
+			}
+
+			auto Binding = MakeUnique<FLuaAnimStateMachineBinding>();
+			Binding->Owner = FLuaActorRef::Make(Owner);
+			Binding->LuaState = MainState;
+			Binding->Generation = NextAnimGeneration++;
+			const FLuaAnimStateMachineRef Ref{ Binding->Generation };
+			AnimStateMachines.Add(std::move(Binding));
+			return Ref;
+		});
+	}
+
+	void ReleaseAnimationStateMachines(sol::state& Lua)
+	{
+		for (int32 Index = AnimStateMachines.Num() - 1; Index >= 0; --Index)
+		{
+			if (AnimStateMachines[Index]->LuaState == Lua.lua_state())
+				AnimStateMachines.RemoveAt(Index);
+		}
+	}
+
 	void Register(sol::state& Lua)
 	{
 		// TODO(B): wait, wait_until, wait_until_move_done, StartCoroutine
@@ -958,6 +1105,7 @@ namespace FLuaBindings
 		RegisterGameplay(Lua);
 		RegisterAudio(Lua);
 		RegisterCameraAction(Lua);
+		RegisterAnimation(Lua);
 	}
 
 	void FlushPendingDestroy(UWorld* World)
@@ -980,6 +1128,12 @@ namespace FLuaBindings
 
 	void ReleaseCallbacks(AActor* Owner)
 	{
+		for (int32 Index = AnimStateMachines.Num() - 1; Index >= 0; --Index)
+		{
+			if (AnimStateMachines[Index]->Owner.Ptr == Owner)
+				AnimStateMachines.RemoveAt(Index);
+		}
+
 		for (int32 i = ClickBindings.Num() - 1; i >= 0; --i)
 		{
 			if (ClickBindings[i].Owner != Owner) continue;
