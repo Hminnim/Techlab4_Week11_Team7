@@ -49,6 +49,9 @@ private:
 	// FBX 파일을 읽고 Manager가 소유하는 Scene을 생성한다.
 	static bool LoadFbxScene(fbxsdk::FbxManager& Manager, const FString& Path, fbxsdk::FbxScene*& OutScene, FString& OutError);
 
+	// 좌표축과 단위만 엔진 기준으로 변환. 애니메이션은 삼각화가 필요 없다.
+	static bool ConvertScene(fbxsdk::FbxManager& Manager, fbxsdk::FbxScene& Scene, FString& OutError);
+
 	// 엔진 좌표계와 m 단위로 변환하고 Geometry를 삼각형화한다.
 	static bool ConvertAndTriangulateScene(fbxsdk::FbxManager& Manager, fbxsdk::FbxScene& Scene, FString& OutError);
 

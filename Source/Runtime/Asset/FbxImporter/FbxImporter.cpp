@@ -731,7 +731,7 @@ bool FFbxImporter::LoadFbxScene(FbxManager& Manager, const FString& Path, FbxSce
 	return true;
 }
 
-bool FFbxImporter::ConvertAndTriangulateScene(FbxManager& Manager, FbxScene& Scene, FString& OutError)
+bool FFbxImporter::ConvertScene(fbxsdk::FbxManager& Manager, fbxsdk::FbxScene& Scene, FString& OutError)
 {
 	// SDK 문자열 순서는 오른쪽 / 위쪽 / 화면 안쪽 방향이다.
 	// 엔진 기준: 오른쪽 +Y, 위쪽 +Z, 전방 +X.
@@ -755,6 +755,14 @@ bool FFbxImporter::ConvertAndTriangulateScene(FbxManager& Manager, FbxScene& Sce
 		// 기본 옵션을 사용해 Cluster의 바인드 정보도 함께 변환한다.
 		EngineUnit.ConvertScene(&Scene);
 	}
+
+	return true;
+}
+
+bool FFbxImporter::ConvertAndTriangulateScene(FbxManager& Manager, FbxScene& Scene, FString& OutError)
+{
+	if (!ConvertScene(Manager, Scene, OutError))
+		return false;
 
 	// Scene의 지원 가능한 Geometry를 삼각형화한다.
 	// true: 기존 Geometry를 삼각형화한 결과로 교체한다.
