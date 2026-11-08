@@ -2,6 +2,62 @@
 #include "SkeletalMeshComponent.h"
 #include "Engine/SkeletalMeshSceneProxy.h"
 #include "Collision/Ray.h"
+#include "Engine/Classes/Animation/AnimInstance.h"
+#include "Engine/Classes/Animation/AnimNodeBase.h"
+
+#include <utility>
+
+USkeletalMeshComponent::USkeletalMeshComponent()
+{
+	PrimaryComponentTick.bCanEverTick = true;
+	PrimaryComponentTick.TickGroup = ETickingGroup::PostPhysics;
+}
+
+USkeletalMeshComponent::~USkeletalMeshComponent() = default;
+
+void USkeletalMeshComponent::SetAnimInstance(TUniquePtr<UAnimInstance> InInstance)
+{
+	AnimInstance = std::move(InInstance);
+	if (AnimInstance)
+	{
+		AnimInstance->SetOwningComponent(this);
+	}
+	ResetToReferencePose();
+	InitializeAnimation();
+}
+
+void USkeletalMeshComponent::InitializeAnimation()
+{
+	bAnimationInitialized = false;
+	if (!AnimInstance || !SkeletalMesh) return;
+
+	AnimInstance->NativeInitializeAnimation();
+	if (FAnimNode_Base* Root = AnimInstance->GetRootNode())
+	{
+		Root->Initialize(FAnimationInitializeContext(nullptr));
+		bAnimationInitialized = true;
+	}
+}
+
+void USkeletalMeshComponent::TickComponent(float DeltaTime)
+{
+	Super::TickComponent(DeltaTime);
+	if (!AnimInstance || !SkeletalMesh || DeltaTime <= 0.0f) return;
+	if (!bAnimationInitialized) InitializeAnimation();
+	if (!bAnimationInitialized) return;
+
+	AnimInstance->NativeUpdateAnimation(DeltaTime);
+	FAnimNode_Base* Root = AnimInstance->GetRootNode();
+	Root->Update(FAnimationUpdateContext(nullptr, DeltaTime));
+
+	FPoseContext Output;
+	Output.Pose.SetRefSkeleton(&SkeletalMesh->GetRefSkeleton());
+	Root->Evaluate(Output);
+	for (int32 BoneIndex = 0; BoneIndex < Output.Pose.GetNumBones(); ++BoneIndex)
+	{
+		SetBoneLocalTransform(BoneIndex, Output.Pose[BoneIndex]);
+	}
+}
 
 FPrimitiveSceneProxy* USkeletalMeshComponent::CreateSceneProxy()
 {
@@ -23,6 +79,7 @@ void USkeletalMeshComponent::SetSkeletalMesh(USkeletalMesh* InMesh)
 	MeshObject.reset();
 	SkeletalMesh = InMesh;
 	InitializePose();
+	InitializeAnimation();
 
 	// 메시가 바뀌면 재질 슬롯도 달라지므로 이전 덮어쓰기를 비우고 렌더 상태를 갱신한다.
 	ClearOverrideMaterials();
@@ -130,6 +187,7 @@ void USkeletalMeshComponent::Serialize(json& Handle, bool bIsLoading)
 		// 리플렉션 로드는 Setter를 거치지 않아 현재 자세를 별도로 초기화한다.
 		MeshObject.reset();
 		InitializePose();
+		InitializeAnimation();
 		MarkRenderStateDirty();
 		OnTransformDirty();
 	}
@@ -142,6 +200,7 @@ void USkeletalMeshComponent::Serialize(FStructuredArchive::FRecord Record)
 	{
 		MeshObject.reset();
 		InitializePose();
+		InitializeAnimation();
 		MarkRenderStateDirty();
 		OnTransformDirty();
 	}
