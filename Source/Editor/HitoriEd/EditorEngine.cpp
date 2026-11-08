@@ -13,6 +13,7 @@
 
 #include "Engine/World.h"
 #include "Engine/Classes/Animation/AnimStateMachine.h"
+#include "Engine/Classes/Animation/Test/AnimStateMachineTest.h"
 #include "Engine/Level.h"
 #include "Engine/GameInstance.h"
 #include "Engine/GameViewportClient.h"
@@ -286,6 +287,7 @@ bool UEditorEngine::Init()
 
 #if defined(ENGINE_DEBUG)
 	VerifyAnimStateMachine();
+	AnimTest::VerifyAnimNodeStateMachine();
 #endif
 	HTR_LOG(Info, "Editor Initialize...");
 

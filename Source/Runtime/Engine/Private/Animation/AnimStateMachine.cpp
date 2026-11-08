@@ -71,24 +71,30 @@ bool FAnimStateMachine::SetStateRestartOnReentry(int32 StateIndex, bool bEnabled
 	return true;
 }
 
-bool FAnimStateMachine::Start(int32 InitialState)
+bool FAnimStateMachine::Start(int32 InInitialState)
 {
-	if (bStarted || !IsValidState(InitialState))
+	if (bStarted || !IsValidState(InInitialState))
 	{
 		return false;
 	}
 
-	CurrentState = InitialState;
-	ElapsedTime = 0.0f;
+	InitialState = InInitialState;
 	bStarted = true;
+	Reset();
 	return true;
 }
 
-void FAnimStateMachine::Update(float DeltaTime)
+void FAnimStateMachine::Reset()
+{
+	CurrentState = InitialState;
+	ElapsedTime = 0.0f;
+}
+
+bool FAnimStateMachine::Update(float DeltaTime)
 {
 	if (!bStarted || DeltaTime <= 0.0f)
 	{
-		return;
+		return false;
 	}
 
 	ElapsedTime += DeltaTime;
@@ -106,7 +112,7 @@ void FAnimStateMachine::Update(float DeltaTime)
 		{
 			CurrentState = Transition.ToState;
 			ElapsedTime = 0.0f;
-			return;
+			return true;
 		}
 	}
 
@@ -123,9 +129,11 @@ void FAnimStateMachine::Update(float DeltaTime)
 			ElapsedTime = 0.0f;
 
 			// 첫 버전은 Update당 한 번만 전환
-			break;
+			return true;
 		}
 	}
+
+	return false;
 }
 
 FName FAnimStateMachine::GetCurrentStateName() const

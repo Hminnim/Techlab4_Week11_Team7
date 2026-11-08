@@ -23,9 +23,9 @@ struct FAnimationUpdateSharedContext
 
 struct FAnimationBaseContext
 {
-	FAnimInstanceProxy* AnimInstanceProxy;
+	FAnimInstanceProxy* AnimInstanceProxy = nullptr;
 
-	FAnimationUpdateSharedContext* SharedContext;
+	FAnimationUpdateSharedContext* SharedContext = nullptr;
 
 	FAnimationBaseContext();
 
@@ -61,13 +61,18 @@ public:
 
 protected:
 	bool bIsActive = true;
-	int32 CurrentNodeId;
-	int32 PreviousNodeId;
+	int32 CurrentNodeId = -1;
+	int32 PreviousNodeId = -1;
 };
 
 struct FAnimationInitializeContext : public FAnimationBaseContext
 {
 public:
+	explicit FAnimationInitializeContext(const FAnimationBaseContext& InContext)
+		: FAnimationBaseContext(InContext)
+	{
+	}
+
 	FAnimationInitializeContext(FAnimInstanceProxy* InAnimInstanceProxy, FAnimationUpdateSharedContext* InSharedContext = nullptr)
 		: FAnimationBaseContext(InAnimInstanceProxy, InSharedContext)
 	{
@@ -208,6 +213,7 @@ public:
 
 struct FAnimNode_Base
 {
+	virtual ~FAnimNode_Base() = default;
 	virtual void Initialize(const FAnimationInitializeContext& Context);
 	virtual void Update(const FAnimationUpdateContext& Context);
 	virtual void Evaluate(FPoseContext& Output);
