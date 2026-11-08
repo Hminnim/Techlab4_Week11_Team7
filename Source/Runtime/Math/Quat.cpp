@@ -60,6 +60,38 @@ FQuat FQuat::operator * (const FQuat& Other) const
 
 }
 
+FQuat FQuat::operator*(const float Scalar) const
+{
+	FQuatRegister A = VectorSIMD::Load(V);
+	FQuatRegister S = VectorSIMD::SetVal(Scalar);
+
+	FQuat Result;
+
+	VectorSIMD::Store(Result.V, VectorSIMD::Mul(A, S));
+
+	return Result;
+}
+
+FQuat FQuat::operator+(const FQuat& Other) const
+{
+	FQuatRegister A = VectorSIMD::Load(V);
+	FQuatRegister B = VectorSIMD::Load(Other.V);
+
+	FQuat Result;
+
+	VectorSIMD::Store(Result.V, VectorSIMD::Add(A, B));
+
+	return Result;
+}
+
+void FQuat::operator+=(const FQuat& Other)
+{
+	FQuatRegister A = VectorSIMD::Load(V);
+	FQuatRegister B = VectorSIMD::Load(Other.V);
+
+	VectorSIMD::Store(V, VectorSIMD::Add(A, B));
+}
+
 // 켤레 복소수
 FQuat FQuat::Conjugate() const
 {
@@ -196,6 +228,11 @@ FVector FQuat::GetUpVector() const
 		2.0f * (Y * Z - W * X),
 		1.0f - 2.0f * (X * X + Y * Y)
 	);
+}
+
+float FQuat::Dot(const FQuat& Other)
+{
+	return X * Other.X + Y * Other.Y + Z * Other.Z + W * Other.W;
 }
 
 /* Statics */

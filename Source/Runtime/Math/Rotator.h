@@ -45,6 +45,11 @@ struct FRotator
 		return FRotator(Pitch * Scalar, Yaw * Scalar, Roll * Scalar);
 	}
 
+	FRotator operator*(const float Scalar) const
+	{
+		return FRotator(Pitch * Scalar, Yaw * Scalar, Roll * Scalar);
+	}
+
 	bool operator==(const FRotator& Other) const
 	{
 		return Pitch == Other.Pitch && Yaw == Other.Yaw && Roll == Other.Roll;

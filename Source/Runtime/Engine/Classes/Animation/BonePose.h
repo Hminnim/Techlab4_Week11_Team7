@@ -14,6 +14,23 @@ inline FQuat GetBoneRotation(const FTransform& BoneTransform)
 	return BoneTransform.Rotation.Quaternion();
 }
 
+struct FBoneTransform
+{
+	FVector Translation = FVector::ZeroVector;
+	FQuat Rotation = FQuat::Identity();
+	FVector Scale = FVector::OneVector;
+
+	void NormalizeRotation()
+	{
+		Rotation = Rotation.Normalized();
+	}
+
+	FTransform ToTransform() const
+	{
+		return MakeBoneTransform(Translation, Rotation, Scale);
+	}
+};
+
 struct FCompactPose
 {
 	// 스켈레톤 지정
@@ -21,7 +38,7 @@ struct FCompactPose
 	{
 		RefSkeleton = InSkeleton;
 
-		if (RefSkeleton)
+		if (RefSkeleton) 
 			ResetToRefPose();
 		else
 			Bones.Reset();

@@ -7,6 +7,7 @@
 struct FAnimExtractContext
 {
 	float CurrentTime = 0.0f;	// 샘플링할 에셋 시간 (초)
+	bool bLooping = false;
 };
 
 UCLASS()

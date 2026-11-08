@@ -4,6 +4,8 @@
 #include "Engine/Classes/Animation/AnimTypes.h"
 #include "AnimSequence.generated.h"
 
+typedef TArray<FTransform> FTransformArrayA2;
+
 struct FCompactPose;
 
 class IAnimationDataModel

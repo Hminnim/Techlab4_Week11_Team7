@@ -2,6 +2,7 @@
 
 #include "Core/Types.h"
 #include "AnimNodeData.h"
+#include "AnimCurveTypes.h"
 #include "BonePose.h"
 
 struct FAnimNode_Base;
@@ -40,7 +41,7 @@ public:
 	FAnimationBaseContext& operator=(const FAnimationBaseContext&) = default;
 
 public:
-	UObject* GetAnimInstanceObject() const;
+	UObject* GetAnimInstanceObject() const;                
 
 	void SetNodeId(int32 InNodeId)
 	{
@@ -187,6 +188,22 @@ struct FPoseContext : public FAnimationBaseContext
 {
 public:
 	FCompactPose Pose;
+	FBlendedCurve Curve;
+};
+
+struct FPoseLink
+{
+	FAnimNode_Base* LinkedNode;
+	int32 LinkID;
+	
+public:
+	FPoseLink() : LinkedNode(nullptr), LinkID(INDEX_NONE) {}
+	
+	void Initialize(const FAnimationInitializeContext& Context);
+	void Update(const FAnimationUpdateContext& Context);
+	void Evaluate(FPoseContext& Output);
+	void SetLinkNode(FAnimNode_Base* NewLinkNode);
+	FAnimNode_Base* GetLinkNode() { return LinkedNode; }
 };
 
 struct FAnimNode_Base
