@@ -96,7 +96,10 @@ bool UCharacterAnimInstance::ConfigureStateMachine(TUniquePtr<FAnimNode_Base> Lo
 			return JumpPhase == EJumpPhase::Landed && IsHitFinished() && ConsumeLanding();
 		});
 	}
-	StateMachine.AddTransition(LocomotionState, AttackState, [this]() { return bAttackRequested; });
+	StateMachine.AddTransition(LocomotionState, AttackState, [this]()
+	{
+		return AttackTransitionRule ? AttackTransitionRule(bAttackRequested) : bAttackRequested;
+	});
 	StateMachine.AddTransition(AttackState, LocomotionState, std::move(IsAttackFinished));
 	StateMachine.AddTransition(HitState, LocomotionState, [this, IsHitFinished = std::move(IsHitFinished)]()
 	{
@@ -116,6 +119,11 @@ void UCharacterAnimInstance::NativeInitializeAnimation()
 	bPendingHit = false;
 	bAttackRequested = false;
 	bHitRequested = false;
+}
+
+void UCharacterAnimInstance::SetAttackTransitionRule(std::function<bool(bool)> Rule)
+{
+	AttackTransitionRule = std::move(Rule);
 }
 
 bool UCharacterAnimInstance::RequestJump()

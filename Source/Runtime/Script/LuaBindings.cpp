@@ -77,6 +77,15 @@ namespace
 	TArray<TUniquePtr<FLuaAnimStateMachineBinding>> AnimStateMachines;
 	uint64 NextAnimGeneration = 1;
 
+	struct FLuaCharacterAttackRule
+	{
+		lua_State* LuaState = nullptr;
+		std::function<bool(bool)> Rule;
+		bool bUpdating = false;
+	};
+
+	TMap<uint32, TSharedPtr<FLuaCharacterAttackRule>> CharacterAttackRules;
+
 	FLuaAnimStateMachineBinding* FindAnimStateMachine(const FLuaAnimStateMachineRef& Ref)
 	{
 		for (const auto& Binding : AnimStateMachines)
@@ -99,14 +108,15 @@ namespace
 		return *Binding;
 	}
 
-	std::function<bool()> MakeLuaTransitionRule(sol::protected_function InFunction)
+	template <typename... TArgs>
+	std::function<bool(TArgs...)> MakeLuaTransitionRule(sol::protected_function InFunction)
 	{
 		if (!InFunction.valid()) throw sol::error("Animation transition rule must be a function.");
 		// 코루틴에서 등록해도 종료된 코루틴 스택을 붙잡지 않도록 메인 스레드 참조를 쓴다.
 		sol::main_protected_function Function = std::move(InFunction);
-		return [Function = std::move(Function)]() -> bool
+		return [Function = std::move(Function)](TArgs... Args) -> bool
 		{
-			sol::protected_function_result Result = Function();
+			sol::protected_function_result Result = Function(Args...);
 			if (!Result.valid())
 			{
 				sol::error Error = Result;
@@ -311,8 +321,18 @@ namespace
 		throw sol::error("Actor does not have a SkeletalMeshComponent.");
 	}
 
+	void CheckCharacterAnimationMutation(const FLuaActorRef& Ref)
+	{
+		const auto* Binding = CharacterAttackRules.Find(Ref.UUID);
+		if (Binding && (*Binding)->bUpdating)
+		{
+			throw sol::error("Cannot modify character animation from its transition rule.");
+		}
+	}
+
 	UCharacterAnimInstance& CharacterAnimationOf(const FLuaActorRef& Ref)
 	{
+		CheckCharacterAnimationMutation(Ref);
 		if (auto* Instance = Cast<UCharacterAnimInstance>(SkeletalMeshComponentOf(Ref).GetAnimInstance()))
 		{
 			return *Instance;
@@ -320,11 +340,40 @@ namespace
 		throw sol::error("Call ConfigureCharacterAnimations before requesting character animation.");
 	}
 
+	void SetAnimAttackRule(const FLuaActorRef& Ref, sol::object Rule, sol::this_main_state MainState)
+	{
+		UCharacterAnimInstance& Instance = CharacterAnimationOf(Ref);
+		if (Rule.get_type() == sol::type::nil)
+		{
+			Instance.SetAttackTransitionRule({});
+			CharacterAttackRules.Remove(Ref.UUID);
+			return;
+		}
+		if (Rule.get_type() != sol::type::function)
+		{
+			throw sol::error("Attack transition rule must be a function or nil.");
+		}
+
+		auto Binding = MakeShared<FLuaCharacterAttackRule>();
+		Binding->LuaState = MainState;
+		Binding->Rule = MakeLuaTransitionRule<bool>(Rule.as<sol::protected_function>());
+		// Lua가 함수의 수명을 관리하고, 그래프는 호출할 때만 참조한다.
+		Instance.SetAttackTransitionRule([WeakBinding = TWeakPtr<FLuaCharacterAttackRule>(Binding)](bool bRequested)
+		{
+			const auto LiveBinding = WeakBinding.lock();
+			if (!LiveBinding) return bRequested;
+			FScopedAnimUpdate Update(LiveBinding->bUpdating);
+			return LiveBinding->Rule(bRequested);
+		});
+		CharacterAttackRules[Ref.UUID] = std::move(Binding);
+	}
+
 	bool ConfigureCharacterAnimations(const FLuaActorRef& Ref,
 		const FString& IdlePath, const FString& AttackPath, const FString& HitPath,
 		sol::optional<FString> IdleTake, sol::optional<FString> AttackTake, sol::optional<FString> HitTake,
 		sol::optional<sol::table> JumpSpec)
 	{
+		CheckCharacterAnimationMutation(Ref);
 		USkeletalMeshComponent& Component = SkeletalMeshComponentOf(Ref);
 		if (!Component.GetSkeletalMesh())
 		{
@@ -359,6 +408,7 @@ namespace
 			throw sol::error("Cannot configure character animations. Each clip must have a positive duration.");
 		}
 		Component.SetAnimInstance(std::move(Instance));
+		CharacterAttackRules.Remove(Ref.UUID);
 		return true;
 	}
 
@@ -368,6 +418,7 @@ namespace
 			sol::no_constructor, // 액터는 Lua에서 생성할 수 없음
 
 			"ConfigureCharacterAnimations", &ConfigureCharacterAnimations,
+			"SetAnimAttackRule", &SetAnimAttackRule,
 			"RequestAnimAttack", [](const FLuaActorRef& Ref) { CharacterAnimationOf(Ref).RequestAttack(); },
 			"RequestAnimHit", [](const FLuaActorRef& Ref) { CharacterAnimationOf(Ref).RequestHit(); },
 			"RequestAnimJump", [](const FLuaActorRef& Ref) { return CharacterAnimationOf(Ref).RequestJump(); },
@@ -1156,6 +1207,16 @@ namespace FLuaBindings
 
 	void ReleaseAnimationStateMachines(sol::state& Lua)
 	{
+		TArray<uint32> RuleOwners;
+		for (const auto& [OwnerId, Binding] : CharacterAttackRules)
+		{
+			if (Binding->LuaState == Lua.lua_state()) RuleOwners.Add(OwnerId);
+		}
+		for (uint32 OwnerId : RuleOwners)
+		{
+			CharacterAttackRules.Remove(OwnerId);
+		}
+
 		for (int32 Index = AnimStateMachines.Num() - 1; Index >= 0; --Index)
 		{
 			if (AnimStateMachines[Index]->LuaState == Lua.lua_state())
@@ -1198,6 +1259,8 @@ namespace FLuaBindings
 
 	void ReleaseCallbacks(AActor* Owner)
 	{
+		if (Owner) CharacterAttackRules.Remove(Owner->GetUUID());
+
 		for (int32 Index = AnimStateMachines.Num() - 1; Index >= 0; --Index)
 		{
 			if (AnimStateMachines[Index]->Owner.Ptr == Owner)

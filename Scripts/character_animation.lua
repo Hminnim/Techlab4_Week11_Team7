@@ -1,6 +1,7 @@
 -- UAL1_Standard 스켈레탈 메시 액터의 ScriptPath에 연결한 뒤 PIE에서 사용한다.
 local pack = "Assets/Models/UAL1/UAL1_Standard.fbx"
 local ready = false
+local attackEnabled = true -- false로 바꾸면 Lua 전이 규칙이 공격을 막는다.
 local airTime = 1.8
 local jumpHeight = 1.0
 local jumpElapsed
@@ -27,6 +28,9 @@ local function Setup()
         }
     )
     ResetJump()
+    obj:SetAnimAttackRule(function(requested)
+        return requested and attackEnabled
+    end)
     obj:SetRestartHitOnReentry(script_state.restartHit == true)
 end
 

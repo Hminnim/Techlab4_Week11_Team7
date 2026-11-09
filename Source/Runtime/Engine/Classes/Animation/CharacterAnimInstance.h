@@ -37,6 +37,7 @@ public:
 	void SetSpeed(float InSpeed) { Speed = InSpeed; }
 	float GetSpeed() const { return Speed; }
 	void RequestAttack() { bPendingAttack = true; }
+	void SetAttackTransitionRule(std::function<bool(bool)> Rule);
 	void RequestHit() { bPendingHit = true; }
 	bool RequestJump();
 	void NotifyLanded();
@@ -53,6 +54,7 @@ private:
 	};
 
 	FAnimNode_StateMachine StateMachine;
+	std::function<bool(bool)> AttackTransitionRule;
 	int32 HitState = -1;
 	int32 JumpFromState = -1;
 	EJumpPhase JumpPhase = EJumpPhase::Grounded;
