@@ -10,6 +10,7 @@
 #include "Components/PrimitiveComponent.h"
 #include "Components/SceneComponent.h"
 #include "Components/ParticleSubUVComponent.h"
+#include "Components/SkeletalMeshComponent.h"
 #include "Core/EngineTimer.h"
 #include "GameFramework/Actor.h"
 #include "GameFramework/SpringArmComponent.h"
@@ -33,6 +34,8 @@
 #include "Components/AudioComponent.h"
 #include "Engine/Classes/Sound/SoundWave.h"
 #include "Engine/Classes/Animation/AnimStateMachine.h"
+#include "Engine/Classes/Animation/AnimSequence.h"
+#include "Engine/Classes/Animation/CharacterAnimInstance.h"
 #include "Camera/CameraShakeBase.h"
 
 #include "LevelSequence/LevelSequenceActor.h" 
@@ -299,10 +302,63 @@ namespace
 		throw sol::error("Actor does not have a SpringArmComponent.");
 	}
 
+	USkeletalMeshComponent& SkeletalMeshComponentOf(const FLuaActorRef& Ref)
+	{
+		for (UActorComponent* Component : Deref(Ref).GetComponents())
+		{
+			if (auto* Mesh = Cast<USkeletalMeshComponent>(Component)) return *Mesh;
+		}
+		throw sol::error("Actor does not have a SkeletalMeshComponent.");
+	}
+
+	UCharacterAnimInstance& CharacterAnimationOf(const FLuaActorRef& Ref)
+	{
+		if (auto* Instance = Cast<UCharacterAnimInstance>(SkeletalMeshComponentOf(Ref).GetAnimInstance()))
+		{
+			return *Instance;
+		}
+		throw sol::error("Call ConfigureCharacterAnimations before requesting character animation.");
+	}
+
+	bool ConfigureCharacterAnimations(const FLuaActorRef& Ref,
+		const FString& IdlePath, const FString& AttackPath, const FString& HitPath,
+		sol::optional<FString> IdleTake, sol::optional<FString> AttackTake, sol::optional<FString> HitTake)
+	{
+		USkeletalMeshComponent& Component = SkeletalMeshComponentOf(Ref);
+		if (!Component.GetSkeletalMesh())
+		{
+			throw sol::error("Assign a skeletal mesh before configuring character animations.");
+		}
+
+		auto LoadClip = [](const FString& Path, const sol::optional<FString>& Take)
+		{
+			FString Error;
+			UAnimSequence* Sequence = UAssetManager::Get().LoadFbxAnimSequence(Path, Error, Take.value_or(FString{}));
+			if (!Sequence) throw sol::error("Cannot load animation '" + Path + "': " + Error);
+			return Sequence;
+		};
+		UAnimSequence* Idle = LoadClip(IdlePath, IdleTake);
+		UAnimSequence* Attack = LoadClip(AttackPath, AttackTake);
+		UAnimSequence* Hit = LoadClip(HitPath, HitTake);
+
+		TUniquePtr<UCharacterAnimInstance> Instance(NewObject<UCharacterAnimInstance>(&Component));
+		if (!Instance->ConfigureAnimations(Idle, Attack, Hit))
+		{
+			throw sol::error("Cannot configure character animations. Each clip must have a positive duration.");
+		}
+		Component.SetAnimInstance(std::move(Instance));
+		return true;
+	}
+
 	void RegisterActor(sol::state& Lua)
 	{
 		Lua.new_usertype<FLuaActorRef>("Actor",
 			sol::no_constructor, // 액터는 Lua에서 생성할 수 없음
+
+			"ConfigureCharacterAnimations", &ConfigureCharacterAnimations,
+			"RequestAnimAttack", [](const FLuaActorRef& Ref) { CharacterAnimationOf(Ref).RequestAttack(); },
+			"RequestAnimHit", [](const FLuaActorRef& Ref) { CharacterAnimationOf(Ref).RequestHit(); },
+			"SetRestartHitOnReentry", [](const FLuaActorRef& Ref, bool bEnabled) { CharacterAnimationOf(Ref).SetRestartHitOnReentry(bEnabled); },
 
 			"PlaySequence", [](const FLuaActorRef& Ref) { if (ULevelSequencePlayer* P = SequencePlayerOf(Ref)) P->Play(); },
 			"PauseSequence", [](const FLuaActorRef& Ref) { if (ULevelSequencePlayer* P = SequencePlayerOf(Ref)) P->Pause(); },
