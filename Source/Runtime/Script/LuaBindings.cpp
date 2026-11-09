@@ -1306,7 +1306,7 @@ namespace FLuaBindings
 				const auto Binding = GetAnimStateMachine(Ref, true);
 				if (!Binding->StatePlayers.IsValidIndex(State)) return false;
 				const auto* Player = Binding->StatePlayers[State];
-				return !Player->IsLoopAnimation() && Player->GetCurrentPlayTime() >= Player->GetSequence()->GetPlayLength();
+				return !Player->IsLoopAnimation() && Player->GetCurrentAssetTimePlayRateAdjusted() >= Player->GetSequence()->GetPlayLength();
 			},
 			"Start", &StartLuaAnimStateMachine,
 			"Update", [](const FLuaAnimStateMachineRef& Ref, float DeltaTime)
@@ -1354,6 +1354,19 @@ namespace FLuaBindings
 			const FLuaAnimStateMachineRef Ref{ Binding->Generation };
 			AnimStateMachines.Add(std::move(Binding));
 			return Ref;
+		});
+
+		// 클립 에셋의 재생 속도 배율을 바꾼다. 음수면 역재생.
+		Lua.set_function("SetAnimRateScale", [](const FString& Path, const FString& Take, float Scale)
+		{
+			if (!std::isfinite(Scale))
+				throw sol::error("Animation RateScale must be finite");
+				
+			FString Error;
+			UAnimSequence* Clip = UAssetManager::Get().LoadFbxAnimSequence(Path, Error, Take);
+			if (!Clip)
+				throw sol::error("Cannot load animation '" + Path + "': " + Error);
+			Clip->RateScale = Scale;
 		});
 	}
 
