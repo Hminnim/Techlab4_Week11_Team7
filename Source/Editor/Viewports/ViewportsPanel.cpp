@@ -7,6 +7,8 @@
 #include "Core/StatOverlay.h"
 #include "Core/Stats/LightweightStats.h"
 #include "Render/RenderCommand.h"
+#include "Render/Renderer.h"
+#include "Components/SkeletalMeshComponent.h"
 
 #include <algorithm>
 #include <cassert>
@@ -409,6 +411,18 @@ void FViewportsPanel::DrawStatOverlay(ImDrawList* DrawList, const ImVec2& ViewMi
 			Line.Values[2] = std::format("{:.2f}", Data.GetMaxMs());
 			ProfileLines.Add(Line);
 		}
+	}
+
+	if (FStatOverlay::IsEnabled(EStatFlags::Profile) && Renderer) {
+		ProfileLines.Add({USkeletalMeshComponent::IsGPUSkinningEnabled()
+			? "Skinning: GPU (global)" : "Skinning: CPU (global)", TitleColor});
+		ProfileLines.Add({"Skeletal Draw GPU (ms)", TitleColor, {"Last", "Avg", "Max"}});
+		const FCycleStatData& Data = Renderer->GetSkinningDrawGPUStats();
+		FProfileStatLine Line{"  Base / Depth / Shadow / Outline", ValueColor};
+		Line.Values[0] = Data.CallCount ? std::format("{:.2f}", Data.GetLastMs()) : "--";
+		Line.Values[1] = Data.CallCount ? std::format("{:.2f}", Data.GetRecentAverageMs()) : "--";
+		Line.Values[2] = Data.CallCount ? std::format("{:.2f}", Data.GetMaxMs()) : "--";
+		ProfileLines.Add(Line);
 	}
 
 	if (const FCycleStatData *PickingData =

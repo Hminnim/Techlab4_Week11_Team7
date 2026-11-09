@@ -3,6 +3,7 @@
 
 #include "Core/StatOverlay.h"
 #include "Render/SceneRenderer.h"
+#include "Components/SkeletalMeshComponent.h"
 
 #include "Editor/Settings/SettingsPanel.h"
 
@@ -32,6 +33,7 @@ bool FOutputLogPanel::Init()
 	Commands.Add("CLEAR");
 	Commands.Add("STAT");
 	Commands.Add("CSM");
+	Commands.Add("r.Skinning.GPU");
 	Commands.Add("r.shadow.CacheWholeSceneShadows");
 
 	HistoryPos = -1;
@@ -186,6 +188,24 @@ void FOutputLogPanel::ExecCommand(const FString& CommandLine)
 	std::istringstream CsmInput(CommandLine);
 	FString Command, Argument, Value, Extra;
 	CsmInput >> Command;
+	if (EqualsIgnoreCase(Command, "r.Skinning.GPU"))
+	{
+		CsmInput >> Argument;
+		if ((CsmInput >> Extra) ||
+			(!Argument.empty() && Argument != "0" && Argument != "1"))
+		{
+			FLog::Log(ELogVerbosity::Info, "Usage: r.Skinning.GPU [0|1]");
+		}
+		else
+		{
+			if (!Argument.empty())
+				USkeletalMeshComponent::SetGPUSkinningEnabled(Argument == "1");
+			FLog::Log(ELogVerbosity::Info, "Skinning (global): {}",
+				USkeletalMeshComponent::IsGPUSkinningEnabled() ? "GPU" : "CPU");
+		}
+		ScrollToBottom = true;
+		return;
+	}
 	if (EqualsIgnoreCase(Command, "CSM"))
 	{
 		if ((CsmInput >> Argument >> Value) && !(CsmInput >> Extra))

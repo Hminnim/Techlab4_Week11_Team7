@@ -340,6 +340,7 @@ bool UEditorEngine::Init()
 
 	EditorControlsPanel = EditorUI->AddEditorPanel<FEditorControlsPanel>();
 	ViewportsPanel = EditorUI->AddEditorPanel<FViewportsPanel>();
+	ViewportsPanel->SetRenderer(Renderer);
 	ContentDrawerPanel = EditorUI->AddEditorPanel<FContentDrawerPanel>();
 
 	// OutLine
@@ -561,7 +562,9 @@ void UEditorEngine::Tick(const float DeltaTime)
 		}
 		AudioDevice->Update(!bIsPaused);
 	}
+	Renderer->BeginSkinningProfileFrame();
 	RenderViewports();
+	Renderer->EndSkinningProfileFrame();
 	EndFrame();
 }
 

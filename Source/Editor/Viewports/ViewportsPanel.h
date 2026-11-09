@@ -7,9 +7,11 @@
 
 class FGameViewportClient;
 class USkeletalMesh;
+class FRenderer;
 
 class FViewportsPanel : public IEditorPanel {
 public:
+	void SetRenderer(const FRenderer* InRenderer) { Renderer = InRenderer; }
 	// 활성 뷰포트 인덱스 설정
 	void SetActiveViewIndex(const int32 InIndex) { ActiveViewIndex = InIndex; }
 	int32 GetActiveViewIndex() const { return ActiveViewIndex; }
@@ -67,6 +69,7 @@ public:
 	}
 
 private:
+	const FRenderer* Renderer = nullptr;
 	std::function<void(USkeletalMesh*, int32, const FVector2&)> OnDropSkeletalMesh;
 	int32 ActiveViewIndex = 0;
 	bool bShowNoCamera = false;

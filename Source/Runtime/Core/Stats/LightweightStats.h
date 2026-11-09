@@ -88,6 +88,13 @@ public:
 		}
 	}
 
+	static void Reset(TStatId StatId)
+	{
+		PendingStatCycles.Remove(StatId.GetName());
+		if (FCycleStatData* Data = Stats.Find(StatId.GetName()))
+			*Data = FCycleStatData{};
+	}
+
 	static const FCycleStatData* Find(TStatId StatId) { return Stats.Find(StatId.GetName()); }
 	static const TMap<const char*, FCycleStatData>& GetAll() { return Stats; }
 
