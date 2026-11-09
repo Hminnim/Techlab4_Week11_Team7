@@ -4,8 +4,25 @@
 #include "Collision/Ray.h"
 #include "Engine/Classes/Animation/AnimInstance.h"
 #include "Engine/Classes/Animation/AnimNodeBase.h"
+#include "Core/Stats/LightweightStats.h"
 
 #include <utility>
+
+namespace
+{
+	DECLARE_CYCLE_STAT("Skinning CPU Update", STAT_SkinningCPUUpdate);
+	DECLARE_CYCLE_STAT("Skinning GPU Prepare (CPU)", STAT_SkinningGPUPrepare);
+}
+
+void USkeletalMeshComponent::SetGPUSkinningEnabled(bool bEnabled)
+{
+	if (bUseGPUSkinning == bEnabled) return;
+	bUseGPUSkinning = bEnabled;
+	++SkinningModeRevision;
+	// 피킹 등 다른 Stat의 누적치는 유지한다.
+	FStatRegistry::Reset(STAT_SkinningCPUUpdate);
+	FStatRegistry::Reset(STAT_SkinningGPUPrepare);
+}
 
 USkeletalMeshComponent::USkeletalMeshComponent()
 {
@@ -91,13 +108,25 @@ void USkeletalMeshComponent::SetSkeletalMesh(USkeletalMesh* InMesh)
 bool USkeletalMeshComponent::UpdateSkinnedMesh()
 {
 	if (!SkeletalMesh) return false;
+	FScopeCycleCounter Counter(bUseGPUSkinning ? STAT_SkinningGPUPrepare : STAT_SkinningCPUUpdate);
+	// 포즈가 정지해 있어도 전역 모드 변경을 먼저 반영한다.
+	if (MeshObject && MeshObject->IsGPUSkinned() != bUseGPUSkinning)
+	{
+		MeshObject.reset();
+		MarkPoseDirty();
+	}
 	if (!bPoseDirty && MeshObject) return true;
 	if (!MeshObject)
-		MeshObject = MakeUnique<FSkeletalMeshObject>(SkeletalMesh->GetMeshData(), SkeletalMesh->GetIndexBuffer());
+	{
+		if (bUseGPUSkinning)
+			MeshObject = MakeUnique<FSkeletalMeshObjectGPUSkin>(*SkeletalMesh);
+		else
+			MeshObject = MakeUnique<FSkeletalMeshObjectCPUSkin>(SkeletalMesh->GetMeshData(), SkeletalMesh->GetIndexBuffer());
+	}
 	if (!MeshObject->UpdateDynamicData(GetBoneComponentMatrices(), &GetDirtySkinningBones())) return false;
-	// 본만 움직여도 CPU 계산 결과의 Bounds와 그림자 캐시를 갱신한다.
+	// 본 이동과 모드 변경 모두 Bounds 및 그림자 캐시를 갱신한다.
 	OnTransformDirty();
-	if (!MeshObject->UploadSkinnedVertices()) return false;
+	if (!MeshObject->UploadDynamicData()) return false;
 	// 업로드까지 성공한 자세만 반영 완료로 처리한다.
 	ClearPoseDirty();
 	return true;

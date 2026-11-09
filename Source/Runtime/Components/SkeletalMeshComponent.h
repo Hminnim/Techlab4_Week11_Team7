@@ -16,6 +16,11 @@ public:
 	USkeletalMeshComponent();
 	~USkeletalMeshComponent() override;
 
+	// 모든 월드/컴포넌트가 공유한다. 객체별 스키닝 선택 속성은 두지 않는다.
+	static void SetGPUSkinningEnabled(bool bEnabled);
+	static bool IsGPUSkinningEnabled() { return bUseGPUSkinning; }
+	static uint32 GetSkinningModeRevision() { return SkinningModeRevision; }
+
 	// 구성된 인스턴스의 소유권을 넘긴다. nullptr이면 재생을 해제하고 기준 포즈로 되돌린다.
 	void SetAnimInstance(TUniquePtr<UAnimInstance> InInstance);
 	UAnimInstance* GetAnimInstance() const { return AnimInstance.get(); }
@@ -53,4 +58,6 @@ private:
 	TUniquePtr<FSkeletalMeshObject> MeshObject;
 	TUniquePtr<UAnimInstance> AnimInstance;
 	bool bAnimationInitialized = false;
+	inline static bool bUseGPUSkinning = false;
+	inline static uint32 SkinningModeRevision = 0;
 };

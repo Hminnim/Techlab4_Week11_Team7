@@ -45,6 +45,11 @@ public:
 		return IndexBuffer.get();
 	}
 
+	// CPU 사용 중에는 만들지 않는다. GPU 모드 첫 업로드에서 한 번 준비한다.
+	bool InitializeGPUResources();
+	FVertexBuffer* GetReferenceVertexBuffer() const { return ReferenceVertexBuffer.get(); }
+	FStructuredBuffer* GetSkinWeightBuffer() const { return SkinWeightBuffer.get(); }
+
 	void SetLoadedBakePath(const FString& InPath)
 	{
 		LoadedBakePath = InPath;
@@ -67,4 +72,6 @@ private:
 
 	// 이 리소스가 소유하는 공유 인덱스 버퍼.
 	TUniquePtr<FIndexBuffer> IndexBuffer;
+	TUniquePtr<FVertexBuffer> ReferenceVertexBuffer;
+	TUniquePtr<FStructuredBuffer> SkinWeightBuffer;
 };
