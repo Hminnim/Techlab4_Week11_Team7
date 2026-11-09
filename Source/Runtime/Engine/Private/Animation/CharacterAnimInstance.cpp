@@ -45,6 +45,14 @@ bool UCharacterAnimInstance::ConfigureAnimations(UAnimSequence* Idle, UAnimSeque
 		IsAttackFinished, IsHitFinished, Jump);
 }
 
+bool UCharacterAnimInstance::ConfigureGraph(FAnimNode_StateMachine&& Graph)
+{
+	if (RootNode || Graph.GetCurrentState() < 0) return false;
+	StateMachine = std::move(Graph);
+	RootNode = &StateMachine;
+	return true;
+}
+
 bool UCharacterAnimInstance::ConfigureStateMachine(TUniquePtr<FAnimNode_Base> LocomotionNode,
 	TUniquePtr<FAnimNode_Base> AttackNode, TUniquePtr<FAnimNode_Base> HitNode,
 	std::function<bool()> IsAttackFinished, std::function<bool()> IsHitFinished,

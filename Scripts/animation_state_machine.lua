@@ -1,36 +1,39 @@
--- 상태 판단만 확인하는 예제. 실제 애니메이션 플레이어 연결은 다음 단계다.
--- 액터의 ScriptPath에 연결 후 PIE: A 공격, H 피격, R 재피격 재시작 토글.
--- 머신 생성은 BeginPlay / OnReload에서 수행한다.
+-- UAL1_Standard 스켈레탈 메시 액터에 연결한다.
+-- PIE에서 A 공격, H 피격, R 재피격 재시작 토글.
+local pack = "Assets/Models/UAL1/UAL1_Standard.fbx"
 local sm
 local attackRequested = false
 local hitRequested = false
 local restartHit = false
+local lastState
 
 local function Build()
     attackRequested = false
     hitRequested = false
-    sm = CreateAnimStateMachine()
+    local graph = obj:CreateAnimGraph()
 
-    local locomotion = sm:AddState("Locomotion")
-    local attack = sm:AddState("Attack")
-    local hit = sm:AddState("Hit")
+    local locomotion = graph:AddSequenceState("Locomotion", pack, "Idle_Loop", true)
+    local attack = graph:AddSequenceState("Attack", pack, "Sword_Attack", false)
+    local hit = graph:AddSequenceState("Hit", pack, "Hit_Chest", false)
     assert(locomotion >= 0 and attack >= 0 and hit >= 0)
 
-    assert(sm:AddTransition(locomotion, attack, function()
+    assert(graph:AddTransition(locomotion, attack, function()
         return attackRequested
     end))
-    assert(sm:AddTransition(attack, locomotion, function()
-        return sm:GetStateElapsedTime() >= 1.0
+    assert(graph:AddTransition(attack, locomotion, function()
+        return graph:IsStateFinished(attack)
     end))
-    assert(sm:AddAnyStateTransition(hit, function()
+    assert(graph:AddAnyStateTransition(hit, function()
         return hitRequested
     end))
-    assert(sm:AddTransition(hit, locomotion, function()
-        return sm:GetStateElapsedTime() >= 1.0
+    assert(graph:AddTransition(hit, locomotion, function()
+        return graph:IsStateFinished(hit)
     end))
-    assert(sm:SetStateRestartOnReentry(hit, restartHit))
-    assert(sm:Start(locomotion))
-    print("[Lua Animation] " .. sm:GetCurrentStateName())
+    assert(graph:SetStateRestartOnReentry(hit, restartHit))
+    assert(graph:Start(locomotion))
+    sm = graph
+    lastState = sm:GetCurrentStateName()
+    print("[Lua Animation] " .. lastState)
 
     return hit
 end
@@ -56,11 +59,11 @@ function Tick(dt)
         print("[Lua Animation] Restart Hit: " .. tostring(restartHit))
     end
 
-    if sm:Update(dt) then
-        print("[Lua Animation] " .. sm:GetCurrentStateName())
+    local currentState = sm:GetCurrentStateName()
+    if currentState ~= lastState then
+        lastState = currentState
+        print("[Lua Animation] " .. currentState)
     end
-    attackRequested = false
-    hitRequested = false
 end
 
 function EndPlay()

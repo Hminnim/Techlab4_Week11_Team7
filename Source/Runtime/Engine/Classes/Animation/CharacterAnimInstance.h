@@ -23,6 +23,7 @@ public:
 	// 이미 로드된 클립으로 구성한다. Idle은 반복, Attack과 Hit은 한 번 재생한다.
 	bool ConfigureAnimations(UAnimSequence* Idle, UAnimSequence* Attack, UAnimSequence* Hit,
 		const FCharacterJumpClips& Jump = {});
+	bool ConfigureGraph(FAnimNode_StateMachine&& Graph);
 
 	// 초기화 전에 한 번 호출한다. 노드는 이 인스턴스가 소유하며, 완료 조건은 실제 재생 노드에서 읽는다.
 	bool ConfigureStateMachine(TUniquePtr<FAnimNode_Base> LocomotionNode,
