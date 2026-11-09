@@ -33,7 +33,7 @@ bool FOutputLogPanel::Init()
 	Commands.Add("CLEAR");
 	Commands.Add("STAT");
 	Commands.Add("CSM");
-	Commands.Add("r.Skinning.GPU");
+	Commands.Add("usegpuskinning");
 	Commands.Add("r.shadow.CacheWholeSceneShadows");
 
 	HistoryPos = -1;
@@ -188,13 +188,13 @@ void FOutputLogPanel::ExecCommand(const FString& CommandLine)
 	std::istringstream CsmInput(CommandLine);
 	FString Command, Argument, Value, Extra;
 	CsmInput >> Command;
-	if (EqualsIgnoreCase(Command, "r.Skinning.GPU"))
+	if (EqualsIgnoreCase(Command, "usegpuskinning") || EqualsIgnoreCase(Command, "r.Skinning.GPU"))
 	{
 		CsmInput >> Argument;
 		if ((CsmInput >> Extra) ||
 			(!Argument.empty() && Argument != "0" && Argument != "1"))
 		{
-			FLog::Log(ELogVerbosity::Info, "Usage: r.Skinning.GPU [0|1]");
+			FLog::Log(ELogVerbosity::Info, "Usage: usegpuskinning [0|1]");
 		}
 		else
 		{

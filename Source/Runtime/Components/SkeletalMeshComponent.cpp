@@ -4,15 +4,9 @@
 #include "Collision/Ray.h"
 #include "Engine/Classes/Animation/AnimInstance.h"
 #include "Engine/Classes/Animation/AnimNodeBase.h"
-#include "Core/Stats/LightweightStats.h"
+#include "Core/Stats/EditorStats.h"
 
 #include <utility>
-
-namespace
-{
-	DECLARE_CYCLE_STAT("Skinning CPU Update", STAT_SkinningCPUUpdate);
-	DECLARE_CYCLE_STAT("Skinning GPU Prepare (CPU)", STAT_SkinningGPUPrepare);
-}
 
 void USkeletalMeshComponent::SetGPUSkinningEnabled(bool bEnabled)
 {
@@ -20,8 +14,8 @@ void USkeletalMeshComponent::SetGPUSkinningEnabled(bool bEnabled)
 	bUseGPUSkinning = bEnabled;
 	++SkinningModeRevision;
 	// 피킹 등 다른 Stat의 누적치는 유지한다.
-	FStatRegistry::Reset(STAT_SkinningCPUUpdate);
-	FStatRegistry::Reset(STAT_SkinningGPUPrepare);
+	FStatRegistry::Reset(EditorStats::STAT_SkinningCPUUpdate);
+	FStatRegistry::Reset(EditorStats::STAT_SkinningGPUPrepare);
 }
 
 USkeletalMeshComponent::USkeletalMeshComponent()
@@ -108,7 +102,8 @@ void USkeletalMeshComponent::SetSkeletalMesh(USkeletalMesh* InMesh)
 bool USkeletalMeshComponent::UpdateSkinnedMesh()
 {
 	if (!SkeletalMesh) return false;
-	FScopeCycleCounter Counter(bUseGPUSkinning ? STAT_SkinningGPUPrepare : STAT_SkinningCPUUpdate);
+	FScopeCycleCounter Counter(bUseGPUSkinning
+		? EditorStats::STAT_SkinningGPUPrepare : EditorStats::STAT_SkinningCPUUpdate);
 	// 포즈가 정지해 있어도 전역 모드 변경을 먼저 반영한다.
 	if (MeshObject && MeshObject->IsGPUSkinned() != bUseGPUSkinning)
 	{
