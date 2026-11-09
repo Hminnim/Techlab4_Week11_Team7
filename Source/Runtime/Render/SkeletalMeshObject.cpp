@@ -1,8 +1,10 @@
 #include "EnginePCH.h"
 #include "SkeletalMeshObject.h"
 
+#include "Core/Async/TaskPool.h"
 #include "Render/Buffer.h"
 #include "Render/RenderCommand.h"
+#include <algorithm>
 #include <cstring>
 
 FSkeletalMeshObject::FSkeletalMeshObject(const FSkeletalMeshData& InMeshData, FIndexBuffer* InIndexBuffer)
@@ -55,31 +57,36 @@ void FSkeletalMeshObject::BuildSkinningMatrices(const TArray<FMatrix>& BoneCompo
 // 변경 본들의 영향 정점 합집합만 계산한다. 정점마다 모든 본 Weight를 사용한다.
 void FSkeletalMeshObject::SkinVerticesCPU(const TArray<uint8>* DirtyBones)
 {
-	if (!DirtyBones)
+	if (DirtyBones)
 	{
-		LastSkinnedVertexCount = MeshData.ReferenceVertices.Num();
-		for (int32 VertexIndex = 0; VertexIndex < MeshData.ReferenceVertices.Num(); ++VertexIndex)
-			SkinVertexCPU(VertexIndex);
-		return;
-	}
-
-	DirtyVertexIndices.Reset();
-	for (int32 BoneIndex = 0; BoneIndex < DirtyBones->Num(); ++BoneIndex)
-	{
-		if (!(*DirtyBones)[BoneIndex]) continue;
-		for (int32 VertexIndex : BoneVertices[BoneIndex])
+		DirtyVertexIndices.Reset();
+		for (int32 BoneIndex = 0; BoneIndex < DirtyBones->Num(); ++BoneIndex)
 		{
-			if (DirtyVertices[VertexIndex]) continue;
-			DirtyVertices[VertexIndex] = 1;
-			DirtyVertexIndices.Add(VertexIndex);
+			if (!(*DirtyBones)[BoneIndex]) continue;
+			for (int32 VertexIndex : BoneVertices[BoneIndex])
+			{
+				if (DirtyVertices[VertexIndex]) continue;
+				DirtyVertices[VertexIndex] = 1;
+				DirtyVertexIndices.Add(VertexIndex);
+			}
 		}
 	}
-	LastSkinnedVertexCount = DirtyVertexIndices.Num();
-	for (int32 VertexIndex : DirtyVertexIndices)
+
+	const bool bUseDirtyIndices = DirtyBones != nullptr;
+	LastSkinnedVertexCount = bUseDirtyIndices ? DirtyVertexIndices.Num() : MeshData.ReferenceVertices.Num();
+	const uint32 VertexCount = static_cast<uint32>(LastSkinnedVertexCount);
+	FTaskPool& Pool = FTaskPool::Get();
+	const uint32 ChunkCount = std::clamp(VertexCount / 1024u, 1u, Pool.GetNumThreads() * 4u);
+	// 정점 목록의 중복을 제거한 뒤 각 작업이 서로 다른 출력 정점만 쓴다.
+	Pool.ParallelFor(VertexCount, ChunkCount, [this, bUseDirtyIndices](uint32 Begin, uint32 End, uint32)
 	{
-		SkinVertexCPU(VertexIndex);
-		DirtyVertices[VertexIndex] = 0;
-	}
+		for (uint32 Index = Begin; Index < End; ++Index)
+		{
+			const int32 VertexIndex = bUseDirtyIndices ? DirtyVertexIndices[Index] : static_cast<int32>(Index);
+			SkinVertexCPU(VertexIndex);
+			if (bUseDirtyIndices) DirtyVertices[VertexIndex] = 0;
+		}
+	});
 }
 
 // 정점에 연결된 본의 변환을 Weight만큼 섞어 위치·노멀·탄젠트를 계산한다.
