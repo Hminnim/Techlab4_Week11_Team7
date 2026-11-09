@@ -24,7 +24,8 @@ namespace
 		// 노드 소유권은 상태 머신으로 이동하지만 주소는 유지된다.
 		return [Player]()
 		{
-			return Player->GetCurrentPlayTime() >= Player->GetSequence()->GetPlayLength();
+				return !Player->IsLoopAnimation() 
+					&& Player->GetCurrentAssetTimePlayRateAdjusted() >= Player->GetSequence()->GetPlayLength();
 		};
 	}
 }

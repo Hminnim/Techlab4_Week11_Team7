@@ -3,7 +3,7 @@
 
 void FAnimNode_SequencePlayer::Initialize(const FAnimationInitializeContext& Context)
 {
-	CurrentPlayTime = 0.0f;
+	CurrentPlayTime = (Sequence && GetEffectivePlayRate() < 0.0f) ? Sequence->GetPlayLength() : 0.0f;
 }
 
 void FAnimNode_SequencePlayer::Update(const FAnimationUpdateContext& Context)
@@ -13,7 +13,7 @@ void FAnimNode_SequencePlayer::Update(const FAnimationUpdateContext& Context)
 		return;
 	}
 
-	CurrentPlayTime += Context.GetDeltaTime() * PlayRate;
+	CurrentPlayTime += Context.GetDeltaTime() * GetEffectivePlayRate();
 
 	float PlayLength = Sequence->GetPlayLength();
 	if(bLoopAnimation)

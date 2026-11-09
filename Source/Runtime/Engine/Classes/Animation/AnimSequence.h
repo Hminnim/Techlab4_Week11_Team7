@@ -49,8 +49,6 @@ class UAnimSequenceBase : public UAnimationAsset
 public:
 	~UAnimSequenceBase() override;
 
-	TArray<FAnimNotifyEvent> Notifies;
-
 	UAnimDataModel* CreateDataModel();
 	UAnimDataModel* GetDataModel() const { return DataModel; }
 
@@ -61,6 +59,10 @@ public:
 	virtual float GetPlayLength() const override { return DataModel ? DataModel->GetPlayLength() : 0.0f; }
 	inline FFrameRate GetSamplingFrameRate() const { return DataModel ? DataModel->GetFrameRate() :  FFrameRate(30, 1); }
 	inline int32 GetNumberOfSampledKeys() const { return DataModel ? DataModel->GetNumberOfKeys() : 0; }
+
+public:
+	TArray<FAnimNotifyEvent> Notifies;
+	float RateScale = 1.0f;
 
 protected:
 	UAnimDataModel* DataModel = nullptr;
