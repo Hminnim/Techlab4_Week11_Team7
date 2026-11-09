@@ -132,6 +132,7 @@ void UAnimSequence::GetBonePose(FCompactPose& OutPose, const FAnimExtractContext
 	);
 
 	const FReferenceSkeleton& RefSkeleton = *OutPose.GetRefSkeleton();
+	const FBoneAnimationTrack* RootMotionTrack = bEnableRootMotion ? FindRootMotionTrack() : nullptr;
 
 	for (const FBoneAnimationTrack& Track : DataModel->GetBoneAnimationTracks())
 	{
@@ -143,10 +144,106 @@ void UAnimSequence::GetBonePose(FCompactPose& OutPose, const FAnimExtractContext
 		if (Keys.PosKeys.Num() == 0 || Keys.RotKeys.Num() == 0 || Keys.ScaleKeys.Num() == 0)
 			continue;
 
-		const FVector Translation = SampleVectorKeys(Keys.PosKeys, KeyIndex1, KeyIndex2, Alpha);
+		FVector Translation = SampleVectorKeys(Keys.PosKeys, KeyIndex1, KeyIndex2, Alpha);
 		const FQuat Rotation = SampleRotationKeys(Keys.RotKeys, KeyIndex1, KeyIndex2, Alpha);
 		const FVector Scale = SampleVectorKeys(Keys.ScaleKeys, KeyIndex1, KeyIndex2, Alpha);
 
+		if (&Track == RootMotionTrack)
+			Translation = RefSkeleton.RawRefBonePose[BoneIndex].Location;
+
 		OutPose[BoneIndex] = MakeBoneTransform(Translation, Rotation, Scale);
 	}
+}
+
+FTransform UAnimSequence::ExtractRootMotion(float StartTime, float DeltaTime, bool bAllowLooping) const
+{
+	FTransform RootMotion;
+
+	const FBoneAnimationTrack* RootTrack = FindRootMotionTrack();
+	const float PlayLength = GetPlayLength();
+
+	if (!RootTrack
+		|| PlayLength <= 0.0f
+		|| RootTrack->InternalTrack.PosKeys.IsEmpty()
+		|| DeltaTime == 0.0f)
+	{
+		return RootMotion;
+	}
+	
+	float Time = FMath::Clamp(StartTime, 0.0f, PlayLength);
+
+	// 루프 아닐 시 시작과 끝 사이의 차이만 본다. 끝을 넘어가는 시간은 버린다.
+	if (!bAllowLooping)
+	{
+		const float EndTime = FMath::Clamp(Time + DeltaTime, 0.0f, PlayLength);
+		RootMotion.Location = SampleTrackLocation(*RootTrack, EndTime) - SampleTrackLocation(*RootTrack, Time);
+		return RootMotion;
+	}
+
+	// 루프일 때 - 끝에 닿으면 반대쪽으로 넘어가 남은 시간만큼 이어서 더한다.
+	FVector Delta(0.0f, 0.0f, 0.0f);
+	float Remaining = DeltaTime;
+	while (Remaining > 0.0f)
+	{
+		if (Time >= PlayLength)
+			Time = 0.0f;
+
+		const float Step = FMath::Min(Remaining, PlayLength - Time);
+		if (Step <= 0.0f)
+			break;
+
+		Delta += SampleTrackLocation(*RootTrack, Time + Step) - SampleTrackLocation(*RootTrack, Time);
+		Time += Step;
+		Remaining -= Step;
+	}
+	
+	while (Remaining < 0.0f)
+	{
+		if (Time <= 0.0f)
+			Time = PlayLength;
+
+		const float Step = FMath::Max(Remaining, -Time);
+		if (Step >= 0.0f)
+			break;
+		Delta += SampleTrackLocation(*RootTrack, Time + Step) - SampleTrackLocation(*RootTrack, Time);
+		Time += Step;
+		Remaining -= Step;
+	}
+
+	RootMotion.Location = Delta;
+	return RootMotion;
+}
+
+const FBoneAnimationTrack* UAnimSequence::FindRootMotionTrack() const
+{
+	if (!DataModel)
+		return nullptr;
+
+	const TArray<FBoneAnimationTrack>& Tracks = DataModel->GetBoneAnimationTracks();
+
+	if (Tracks.IsEmpty())
+		return nullptr;
+
+	const FName RootName("root");
+	for (const FBoneAnimationTrack& Track : Tracks)
+	{
+		if (Track.Name == RootName)
+			return &Track;
+	}
+
+	return &Tracks[0];
+}
+
+FVector UAnimSequence::SampleTrackLocation(const FBoneAnimationTrack& Track, float Time) const
+{
+	int32 KeyIndex1 = 0;
+	int32 KeyIndex2 = 0;
+	float Alpha = 0.0f;
+	GetKeyIndicesFromTime(
+		KeyIndex1, KeyIndex2, Alpha, Time,
+		DataModel->GetNumberOfKeys(),
+		DataModel->GetPlayLength(),
+		static_cast<float>(DataModel->GetFrameRate().AsDecimal())
+	);
+	return SampleVectorKeys(Track.InternalTrack.PosKeys, KeyIndex1, KeyIndex2, Alpha);
 }

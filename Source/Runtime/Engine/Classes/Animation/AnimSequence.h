@@ -74,4 +74,14 @@ class UAnimSequence : public UAnimSequenceBase
 public:
 	virtual void GetAnimationPose(FCompactPose& OutPose, const FAnimExtractContext& ExtractionContext) const override;
 	void GetBonePose(FCompactPose& OutPose, const FAnimExtractContext& ExtractionContext) const;
+	FTransform ExtractRootMotion(float StartTime, float DeltaTime, bool bAllowLooping) const;
+
+public:
+	// Root Motion을 키면 포즈의 root bone 위치를 바인드 포즈에 고정하고, 움직인 양은 ExtractRootMotion으로 추출한다.
+	bool bEnableRootMotion = false;
+
+private:
+	// Root Motion 을 추출할 트랙. "root" 트랙이 있을 시 해당 트랙, 없으면 가장 위 0번 트랙.
+	const FBoneAnimationTrack* FindRootMotionTrack() const;
+	FVector SampleTrackLocation(const FBoneAnimationTrack& Track, float Time) const;
 };
