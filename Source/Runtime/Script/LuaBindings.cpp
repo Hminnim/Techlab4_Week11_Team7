@@ -10,6 +10,7 @@
 #include "Components/PrimitiveComponent.h"
 #include "Components/SceneComponent.h"
 #include "Components/ParticleSubUVComponent.h"
+#include "Components/SkeletalMeshComponent.h"
 #include "Core/EngineTimer.h"
 #include "GameFramework/Actor.h"
 #include "GameFramework/SpringArmComponent.h"
@@ -33,6 +34,8 @@
 #include "Components/AudioComponent.h"
 #include "Engine/Classes/Sound/SoundWave.h"
 #include "Engine/Classes/Animation/AnimStateMachine.h"
+#include "Engine/Classes/Animation/AnimNode_SequencePlayer.h"
+#include "Engine/Classes/Animation/CharacterAnimInstance.h"
 #include "Camera/CameraShakeBase.h"
 
 #include "LevelSequence/LevelSequenceActor.h" 
@@ -68,42 +71,81 @@ namespace
 		lua_State* LuaState = nullptr;
 		uint64 Generation = 0;
 		FAnimStateMachine Machine;
+		FLuaComponentRef PlaybackComponent;
+		TUniquePtr<FAnimNode_StateMachine> PendingGraph;
+		uint32 InstalledInstanceId = 0;
+		TArray<FAnimNode_SequencePlayer*> StatePlayers;
+		TArray<std::function<bool()>> PlaybackRules;
+		bool bUpdating = false;
+
+		bool IsPlayback() const { return PlaybackComponent.Ptr != nullptr; }
+		USkeletalMeshComponent* GetPlaybackComponent() const
+		{
+			return static_cast<USkeletalMeshComponent*>(PlaybackComponent.Ptr);
+		}
+		FAnimNode_StateMachine& GetPlaybackGraph() const
+		{
+			if (PendingGraph) return *PendingGraph;
+			return *static_cast<FAnimNode_StateMachine*>(GetPlaybackComponent()->GetAnimInstance()->GetRootNode());
+		}
+	};
+
+	TArray<TSharedPtr<FLuaAnimStateMachineBinding>> AnimStateMachines;
+	uint64 NextAnimGeneration = 1;
+
+	struct FLuaCharacterAttackRule
+	{
+		lua_State* LuaState = nullptr;
+		std::function<bool(bool)> Rule;
 		bool bUpdating = false;
 	};
 
-	TArray<TUniquePtr<FLuaAnimStateMachineBinding>> AnimStateMachines;
-	uint64 NextAnimGeneration = 1;
+	TMap<uint32, TSharedPtr<FLuaCharacterAttackRule>> CharacterAttackRules;
 
-	FLuaAnimStateMachineBinding* FindAnimStateMachine(const FLuaAnimStateMachineRef& Ref)
+	TSharedPtr<FLuaAnimStateMachineBinding> FindAnimStateMachine(const FLuaAnimStateMachineRef& Ref)
 	{
 		for (const auto& Binding : AnimStateMachines)
 		{
 			if (Binding->Generation != Ref.Generation) continue;
 			uint32 LiveUUID = 0;
 			// 삭제된 액터나 월드의 포인터를 역참조하지 않고 객체 생존부터 확인한다.
-			return TryGetLiveObjectUUID(Binding->Owner.Ptr, nullptr, LiveUUID)
-				&& LiveUUID == Binding->Owner.UUID ? Binding.get() : nullptr;
+			if (!TryGetLiveObjectUUID(Binding->Owner.Ptr, nullptr, LiveUUID) || LiveUUID != Binding->Owner.UUID)
+				return nullptr;
+			if (Binding->IsPlayback())
+			{
+				const auto& Component = Binding->PlaybackComponent;
+				if (!TryGetLiveObjectUUID(Component.Ptr, nullptr, LiveUUID) || LiveUUID != Component.UUID)
+					return nullptr;
+				if (Component.Ptr->GetOwner() != Binding->Owner.Ptr) return nullptr;
+				if (!Binding->PendingGraph)
+				{
+					const UAnimInstance* Instance = Binding->GetPlaybackComponent()->GetAnimInstance();
+					if (!Instance || Instance->GetUUID() != Binding->InstalledInstanceId) return nullptr;
+				}
+			}
+			return Binding;
 		}
 		return nullptr;
 	}
 
-	FLuaAnimStateMachineBinding& GetAnimStateMachine(const FLuaAnimStateMachineRef& Ref, bool bReadOnly = false)
+	TSharedPtr<FLuaAnimStateMachineBinding> GetAnimStateMachine(const FLuaAnimStateMachineRef& Ref, bool bReadOnly = false)
 	{
-		FLuaAnimStateMachineBinding* Binding = FindAnimStateMachine(Ref);
+		auto Binding = FindAnimStateMachine(Ref);
 		if (!Binding) throw sol::error("Animation state machine was replaced or its actor was destroyed.");
 		if (Binding->bUpdating && !bReadOnly)
 			throw sol::error("Cannot mutate or recursively update an animation state machine from its rule.");
-		return *Binding;
+		return Binding;
 	}
 
-	std::function<bool()> MakeLuaTransitionRule(sol::protected_function InFunction)
+	template <typename... TArgs>
+	std::function<bool(TArgs...)> MakeLuaTransitionRule(sol::protected_function InFunction)
 	{
 		if (!InFunction.valid()) throw sol::error("Animation transition rule must be a function.");
 		// 코루틴에서 등록해도 종료된 코루틴 스택을 붙잡지 않도록 메인 스레드 참조를 쓴다.
 		sol::main_protected_function Function = std::move(InFunction);
-		return [Function = std::move(Function)]() -> bool
+		return [Function = std::move(Function)](TArgs... Args) -> bool
 		{
-			sol::protected_function_result Result = Function();
+			sol::protected_function_result Result = Function(Args...);
 			if (!Result.valid())
 			{
 				sol::error Error = Result;
@@ -299,10 +341,228 @@ namespace
 		throw sol::error("Actor does not have a SpringArmComponent.");
 	}
 
+	USkeletalMeshComponent& SkeletalMeshComponentOf(const FLuaActorRef& Ref)
+	{
+		for (UActorComponent* Component : Deref(Ref).GetComponents())
+		{
+			if (auto* Mesh = Cast<USkeletalMeshComponent>(Component)) return *Mesh;
+		}
+		throw sol::error("Actor does not have a SkeletalMeshComponent.");
+	}
+
+	void CheckCharacterAnimationMutation(const FLuaActorRef& Ref)
+	{
+		const auto* Binding = CharacterAttackRules.Find(Ref.UUID);
+		if (Binding && (*Binding)->bUpdating)
+		{
+			throw sol::error("Cannot modify character animation from its transition rule.");
+		}
+		for (const auto& Machine : AnimStateMachines)
+		{
+			if (Machine->IsPlayback() && Machine->Owner.UUID == Ref.UUID && Machine->bUpdating)
+				throw sol::error("Cannot modify character animation from its transition rule.");
+		}
+	}
+
+	void RemovePlaybackGraphs(uint32 OwnerId, uint64 KeepGeneration = 0)
+	{
+		for (int32 Index = AnimStateMachines.Num() - 1; Index >= 0; --Index)
+		{
+			const auto& Binding = AnimStateMachines[Index];
+			if (Binding->IsPlayback() && Binding->Owner.UUID == OwnerId && Binding->Generation != KeepGeneration)
+				AnimStateMachines.RemoveAt(Index);
+		}
+	}
+
+	FLuaAnimStateMachineRef CreateAnimGraph(const FLuaActorRef& Ref, sol::this_main_state MainState)
+	{
+		CheckCharacterAnimationMutation(Ref);
+		USkeletalMeshComponent& Component = SkeletalMeshComponentOf(Ref);
+		if (!Component.GetSkeletalMesh())
+			throw sol::error("Assign a skeletal mesh before creating an animation graph.");
+
+		// 이전에 시작하지 않은 구성만 정리한다. 실행 중인 그래프는 Start까지 유지한다.
+		for (int32 Index = AnimStateMachines.Num() - 1; Index >= 0; --Index)
+		{
+			const auto& Binding = AnimStateMachines[Index];
+			if (Binding->Owner.UUID == Ref.UUID && Binding->PendingGraph)
+				AnimStateMachines.RemoveAt(Index);
+		}
+
+		auto Binding = MakeShared<FLuaAnimStateMachineBinding>();
+		Binding->Owner = Ref;
+		Binding->LuaState = MainState;
+		Binding->Generation = NextAnimGeneration++;
+		Binding->PlaybackComponent = FLuaComponentRef::Make(&Component);
+		Binding->PendingGraph = MakeUnique<FAnimNode_StateMachine>();
+		const FLuaAnimStateMachineRef Handle{ Binding->Generation };
+		AnimStateMachines.Add(std::move(Binding));
+		return Handle;
+	}
+
+	int32 AddSequenceState(const FLuaAnimStateMachineRef& Ref, const FString& Name,
+		const FString& Path, const FString& Take, bool bLoop)
+	{
+		const auto Binding = GetAnimStateMachine(Ref);
+		if (!Binding->PendingGraph) return -1;
+
+		FString Error;
+		UAnimSequence* Clip = UAssetManager::Get().LoadFbxAnimSequence(Path, Error, Take);
+		if (!Clip) throw sol::error("Cannot load animation '" + Path + "': " + Error);
+		if (Clip->GetPlayLength() <= 0.0f) return -1;
+
+		auto Player = MakeUnique<FAnimNode_SequencePlayer>();
+		Player->SetSequence(Clip);
+		Player->SetLoopAnimation(bLoop);
+		auto* PlayerPtr = Player.get();
+		const int32 State = Binding->PendingGraph->AddState(FName(Name), std::move(Player));
+		if (State >= 0) Binding->StatePlayers.Add(PlayerPtr);
+		return State;
+	}
+
+	bool AddLuaAnimTransition(const FLuaAnimStateMachineRef& Ref, int32 From, int32 To,
+		sol::protected_function Function, bool bAnyState)
+	{
+		const auto Binding = GetAnimStateMachine(Ref);
+		auto Rule = MakeLuaTransitionRule(std::move(Function));
+		if (!Binding->IsPlayback())
+		{
+			return bAnyState ? Binding->Machine.AddAnyStateTransition(To, std::move(Rule))
+				: Binding->Machine.AddTransition(From, To, std::move(Rule));
+		}
+		if (!Binding->PendingGraph) return false;
+
+		// VM이 함수 참조를 관리하므로, 실행 그래프는 바인딩을 약하게 참조한다.
+		const int32 RuleIndex = Binding->PlaybackRules.Num();
+		auto PlaybackRule = [WeakBinding = TWeakPtr<FLuaAnimStateMachineBinding>(Binding), RuleIndex]()
+		{
+			const auto Live = WeakBinding.lock();
+			if (!Live) return false;
+			FScopedAnimUpdate Update(Live->bUpdating);
+			return Live->PlaybackRules[RuleIndex]();
+		};
+		const bool bAdded = bAnyState ? Binding->PendingGraph->AddAnyStateTransition(To, std::move(PlaybackRule))
+			: Binding->PendingGraph->AddTransition(From, To, std::move(PlaybackRule));
+		if (bAdded) Binding->PlaybackRules.Add(std::move(Rule));
+		return bAdded;
+	}
+
+	bool StartLuaAnimStateMachine(const FLuaAnimStateMachineRef& Ref, int32 State)
+	{
+		const auto Binding = GetAnimStateMachine(Ref);
+		if (!Binding->IsPlayback()) return Binding->Machine.Start(State);
+		CheckCharacterAnimationMutation(Binding->Owner);
+
+		USkeletalMeshComponent* Component = Binding->GetPlaybackComponent();
+		if (!Component->GetSkeletalMesh() || !Binding->PendingGraph || !Binding->PendingGraph->Start(State))
+			return false;
+
+		TUniquePtr<UCharacterAnimInstance> Instance(NewObject<UCharacterAnimInstance>(Component));
+		if (!Instance->ConfigureGraph(std::move(*Binding->PendingGraph))) return false;
+		Binding->InstalledInstanceId = Instance->GetUUID();
+		Component->SetAnimInstance(std::move(Instance));
+		Binding->PendingGraph.reset();
+		RemovePlaybackGraphs(Binding->Owner.UUID, Binding->Generation);
+		CharacterAttackRules.Remove(Binding->Owner.UUID);
+		return true;
+	}
+
+	UCharacterAnimInstance& CharacterAnimationOf(const FLuaActorRef& Ref)
+	{
+		CheckCharacterAnimationMutation(Ref);
+		if (auto* Instance = Cast<UCharacterAnimInstance>(SkeletalMeshComponentOf(Ref).GetAnimInstance()))
+		{
+			return *Instance;
+		}
+		throw sol::error("Call ConfigureCharacterAnimations before requesting character animation.");
+	}
+
+	void SetAnimAttackRule(const FLuaActorRef& Ref, sol::object Rule, sol::this_main_state MainState)
+	{
+		UCharacterAnimInstance& Instance = CharacterAnimationOf(Ref);
+		if (Rule.get_type() == sol::type::nil)
+		{
+			Instance.SetAttackTransitionRule({});
+			CharacterAttackRules.Remove(Ref.UUID);
+			return;
+		}
+		if (Rule.get_type() != sol::type::function)
+		{
+			throw sol::error("Attack transition rule must be a function or nil.");
+		}
+
+		auto Binding = MakeShared<FLuaCharacterAttackRule>();
+		Binding->LuaState = MainState;
+		Binding->Rule = MakeLuaTransitionRule<bool>(Rule.as<sol::protected_function>());
+		// Lua가 함수의 수명을 관리하고, 그래프는 호출할 때만 참조한다.
+		Instance.SetAttackTransitionRule([WeakBinding = TWeakPtr<FLuaCharacterAttackRule>(Binding)](bool bRequested)
+		{
+			const auto LiveBinding = WeakBinding.lock();
+			if (!LiveBinding) return bRequested;
+			FScopedAnimUpdate Update(LiveBinding->bUpdating);
+			return LiveBinding->Rule(bRequested);
+		});
+		CharacterAttackRules[Ref.UUID] = std::move(Binding);
+	}
+
+	bool ConfigureCharacterAnimations(const FLuaActorRef& Ref,
+		const FString& IdlePath, const FString& AttackPath, const FString& HitPath,
+		sol::optional<FString> IdleTake, sol::optional<FString> AttackTake, sol::optional<FString> HitTake,
+		sol::optional<sol::table> JumpSpec)
+	{
+		CheckCharacterAnimationMutation(Ref);
+		USkeletalMeshComponent& Component = SkeletalMeshComponentOf(Ref);
+		if (!Component.GetSkeletalMesh())
+		{
+			throw sol::error("Assign a skeletal mesh before configuring character animations.");
+		}
+
+		TArray<FFbxAnimationRequest> Requests =
+		{
+			{ IdlePath, IdleTake.value_or(FString{}) },
+			{ AttackPath, AttackTake.value_or(FString{}) },
+			{ HitPath, HitTake.value_or(FString{}) }
+		};
+		if (JumpSpec)
+		{
+			const FString JumpPath = JumpSpec->get<FString>("path");
+			Requests.Add({ JumpPath, JumpSpec->get<FString>("start") });
+			Requests.Add({ JumpPath, JumpSpec->get<FString>("loop") });
+			Requests.Add({ JumpPath, JumpSpec->get<FString>("land") });
+		}
+
+		TArray<UAnimSequence*> Clips;
+		FString Error;
+		if (!UAssetManager::Get().LoadFbxAnimSequences(Requests, Clips, Error))
+		{
+			throw sol::error(Error);
+		}
+
+		const FCharacterJumpClips Jump = JumpSpec ? FCharacterJumpClips{ Clips[3], Clips[4], Clips[5] } : FCharacterJumpClips{};
+		TUniquePtr<UCharacterAnimInstance> Instance(NewObject<UCharacterAnimInstance>(&Component));
+		if (!Instance->ConfigureAnimations(Clips[0], Clips[1], Clips[2], Jump))
+		{
+			throw sol::error("Cannot configure character animations. Each clip must have a positive duration.");
+		}
+		Component.SetAnimInstance(std::move(Instance));
+		RemovePlaybackGraphs(Ref.UUID);
+		CharacterAttackRules.Remove(Ref.UUID);
+		return true;
+	}
+
 	void RegisterActor(sol::state& Lua)
 	{
 		Lua.new_usertype<FLuaActorRef>("Actor",
 			sol::no_constructor, // 액터는 Lua에서 생성할 수 없음
+
+			"ConfigureCharacterAnimations", &ConfigureCharacterAnimations,
+			"CreateAnimGraph", &CreateAnimGraph,
+			"SetAnimAttackRule", &SetAnimAttackRule,
+			"RequestAnimAttack", [](const FLuaActorRef& Ref) { CharacterAnimationOf(Ref).RequestAttack(); },
+			"RequestAnimHit", [](const FLuaActorRef& Ref) { CharacterAnimationOf(Ref).RequestHit(); },
+			"RequestAnimJump", [](const FLuaActorRef& Ref) { return CharacterAnimationOf(Ref).RequestJump(); },
+			"NotifyAnimLanded", [](const FLuaActorRef& Ref) { CharacterAnimationOf(Ref).NotifyLanded(); },
+			"SetRestartHitOnReentry", [](const FLuaActorRef& Ref, bool bEnabled) { CharacterAnimationOf(Ref).SetRestartHitOnReentry(bEnabled); },
 
 			"PlaySequence", [](const FLuaActorRef& Ref) { if (ULevelSequencePlayer* P = SequencePlayerOf(Ref)) P->Play(); },
 			"PauseSequence", [](const FLuaActorRef& Ref) { if (ULevelSequencePlayer* P = SequencePlayerOf(Ref)) P->Pause(); },
@@ -1023,43 +1283,56 @@ namespace FLuaBindings
 			"IsValid", [](const FLuaAnimStateMachineRef& Ref) { return FindAnimStateMachine(Ref) != nullptr; },
 			"AddState", [](const FLuaAnimStateMachineRef& Ref, const FString& Name)
 			{
-				return GetAnimStateMachine(Ref).Machine.AddState(FName(Name));
+				const auto Binding = GetAnimStateMachine(Ref);
+				return Binding->IsPlayback() ? -1 : Binding->Machine.AddState(FName(Name));
 			},
+			"AddSequenceState", &AddSequenceState,
 			"AddTransition", [](const FLuaAnimStateMachineRef& Ref, int32 From, int32 To, sol::protected_function Rule)
 			{
-				return GetAnimStateMachine(Ref).Machine.AddTransition(From, To, MakeLuaTransitionRule(std::move(Rule)));
+				return AddLuaAnimTransition(Ref, From, To, std::move(Rule), false);
 			},
 			"AddAnyStateTransition", [](const FLuaAnimStateMachineRef& Ref, int32 To, sol::protected_function Rule)
 			{
-				return GetAnimStateMachine(Ref).Machine.AddAnyStateTransition(To, MakeLuaTransitionRule(std::move(Rule)));
+				return AddLuaAnimTransition(Ref, -1, To, std::move(Rule), true);
 			},
 			"SetStateRestartOnReentry", [](const FLuaAnimStateMachineRef& Ref, int32 State, bool bEnabled)
 			{
-				return GetAnimStateMachine(Ref).Machine.SetStateRestartOnReentry(State, bEnabled);
+				const auto Binding = GetAnimStateMachine(Ref);
+				return Binding->IsPlayback() ? Binding->GetPlaybackGraph().SetStateRestartOnReentry(State, bEnabled)
+					: Binding->Machine.SetStateRestartOnReentry(State, bEnabled);
 			},
-			"Start", [](const FLuaAnimStateMachineRef& Ref, int32 State)
+			"IsStateFinished", [](const FLuaAnimStateMachineRef& Ref, int32 State)
 			{
-				return GetAnimStateMachine(Ref).Machine.Start(State);
+				const auto Binding = GetAnimStateMachine(Ref, true);
+				if (!Binding->StatePlayers.IsValidIndex(State)) return false;
+				const auto* Player = Binding->StatePlayers[State];
+				return !Player->IsLoopAnimation() && Player->GetCurrentPlayTime() >= Player->GetSequence()->GetPlayLength();
 			},
+			"Start", &StartLuaAnimStateMachine,
 			"Update", [](const FLuaAnimStateMachineRef& Ref, float DeltaTime)
 			{
 				if (!std::isfinite(DeltaTime) || DeltaTime < 0.0f)
 					throw sol::error("Animation DeltaTime must be finite and non-negative.");
-				auto& Binding = GetAnimStateMachine(Ref);
-				FScopedAnimUpdate UpdateGuard(Binding.bUpdating);
-				return Binding.Machine.Update(DeltaTime);
+				const auto Binding = GetAnimStateMachine(Ref);
+				if (Binding->IsPlayback()) throw sol::error("The skeletal mesh component updates this animation graph.");
+				FScopedAnimUpdate UpdateGuard(Binding->bUpdating);
+				return Binding->Machine.Update(DeltaTime);
 			},
 			"GetCurrentState", [](const FLuaAnimStateMachineRef& Ref)
 			{
-				return GetAnimStateMachine(Ref, true).Machine.GetCurrentState();
+				const auto Binding = GetAnimStateMachine(Ref, true);
+				return Binding->IsPlayback() ? Binding->GetPlaybackGraph().GetCurrentState() : Binding->Machine.GetCurrentState();
 			},
 			"GetCurrentStateName", [](const FLuaAnimStateMachineRef& Ref)
 			{
-				return GetAnimStateMachine(Ref, true).Machine.GetCurrentStateName().ToString();
+				const auto Binding = GetAnimStateMachine(Ref, true);
+				const FName Name = Binding->IsPlayback() ? Binding->GetPlaybackGraph().GetCurrentStateName() : Binding->Machine.GetCurrentStateName();
+				return Name.ToString();
 			},
 			"GetStateElapsedTime", [](const FLuaAnimStateMachineRef& Ref)
 			{
-				return GetAnimStateMachine(Ref, true).Machine.GetStateElapsedTime();
+				const auto Binding = GetAnimStateMachine(Ref, true);
+				return Binding->IsPlayback() ? Binding->GetPlaybackGraph().GetStateElapsedTime() : Binding->Machine.GetStateElapsedTime();
 			});
 
 		Lua.set_function("CreateAnimStateMachine", [](sol::this_environment Env, sol::this_main_state MainState)
@@ -1068,13 +1341,13 @@ namespace FLuaBindings
 			if (!Owner) throw sol::error("CreateAnimStateMachine requires a live actor script context.");
 			for (int32 Index = AnimStateMachines.Num() - 1; Index >= 0; --Index)
 			{
-				if (AnimStateMachines[Index]->Owner.Ptr != Owner) continue;
+				if (AnimStateMachines[Index]->Owner.Ptr != Owner || AnimStateMachines[Index]->IsPlayback()) continue;
 				if (AnimStateMachines[Index]->bUpdating)
 					throw sol::error("Cannot replace an animation state machine from its rule.");
 				AnimStateMachines.RemoveAt(Index);
 			}
 
-			auto Binding = MakeUnique<FLuaAnimStateMachineBinding>();
+			auto Binding = MakeShared<FLuaAnimStateMachineBinding>();
 			Binding->Owner = FLuaActorRef::Make(Owner);
 			Binding->LuaState = MainState;
 			Binding->Generation = NextAnimGeneration++;
@@ -1086,6 +1359,16 @@ namespace FLuaBindings
 
 	void ReleaseAnimationStateMachines(sol::state& Lua)
 	{
+		TArray<uint32> RuleOwners;
+		for (const auto& [OwnerId, Binding] : CharacterAttackRules)
+		{
+			if (Binding->LuaState == Lua.lua_state()) RuleOwners.Add(OwnerId);
+		}
+		for (uint32 OwnerId : RuleOwners)
+		{
+			CharacterAttackRules.Remove(OwnerId);
+		}
+
 		for (int32 Index = AnimStateMachines.Num() - 1; Index >= 0; --Index)
 		{
 			if (AnimStateMachines[Index]->LuaState == Lua.lua_state())
@@ -1128,6 +1411,8 @@ namespace FLuaBindings
 
 	void ReleaseCallbacks(AActor* Owner)
 	{
+		if (Owner) CharacterAttackRules.Remove(Owner->GetUUID());
+
 		for (int32 Index = AnimStateMachines.Num() - 1; Index >= 0; --Index)
 		{
 			if (AnimStateMachines[Index]->Owner.Ptr == Owner)

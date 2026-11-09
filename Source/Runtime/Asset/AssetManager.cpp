@@ -546,6 +546,7 @@ void UAssetManager::CreateEditorArrowMaterial() {
 void UAssetManager::Shutdown()
 {
 	Get().AssetMap.Empty();
+	Get().FirstFbxAnimations.Empty();
 	Get().SoundMap.Empty();
 }
 
@@ -705,6 +706,53 @@ UStaticMesh* UAssetManager::LoadFbxStaticMesh(const FString& Key, const FString&
 	return StaticMesh;
 }
 
+UAnimSequence* UAssetManager::LoadFbxAnimSequence(const FString& Path, FString& OutError, const FString& TakeName)
+{
+	OutError.clear();
+	const FString Key = MakeAssetKey(Path);
+	const size_t Separator = TakeName.find_last_of('|');
+	const FString Name = Separator == FString::npos ? TakeName : TakeName.substr(Separator + 1);
+	const FString AnimKey = Key + "/" + Name;
+	if (!TakeName.empty())
+	{
+		if (UAnimSequence* Cached = Cast<UAnimSequence>(AssetMap.FindRef(AnimKey))) return Cached;
+	}
+
+	if (!FirstFbxAnimations.Contains(Key))
+	{
+		LoadFbxAnimations(Key, Path, OutError);
+		if (!OutError.empty()) return nullptr;
+	}
+
+	UAnimSequence* Sequence = TakeName.empty() ? FirstFbxAnimations.FindRef(Key)
+		: Cast<UAnimSequence>(AssetMap.FindRef(AnimKey));
+	if (!Sequence)
+	{
+		OutError = TakeName.empty() ? "FBX has no playable animation takes." : "FBX animation take not found: " + TakeName;
+	}
+	return Sequence;
+}
+
+bool UAssetManager::LoadFbxAnimSequences(const TArray<FFbxAnimationRequest>& Requests,
+	TArray<UAnimSequence*>& OutSequences, FString& OutError)
+{
+	OutError.clear();
+	TArray<UAnimSequence*> Sequences;
+	Sequences.Reserve(Requests.Num());
+	for (const FFbxAnimationRequest& Request : Requests)
+	{
+		UAnimSequence* Clip = LoadFbxAnimSequence(Request.Path, OutError, Request.TakeName);
+		if (!Clip)
+		{
+			OutError = "Cannot load animation '" + Request.Path + "': " + OutError;
+			return false;
+		}
+		Sequences.Add(Clip);
+	}
+	OutSequences = std::move(Sequences);
+	return true;
+}
+
 USkeletalMesh* UAssetManager::LoadFbxSkeletalMesh(const FString& Key, const FString& Path, FString& OutError, FFbxBakeResult* BakedData)
 {
 	OutError.clear();
@@ -802,20 +850,26 @@ int32 UAssetManager::LoadFbxAnimations(const FString& Key, const FString& Path, 
 	}
 
 	int32 AnimCount = 0;
+	UAnimSequence* FirstSequence = nullptr;
 	for (FAnimSequenceImportData& Data : AnimData)
 	{
 		const FString AnimKey = Key + "/" + Data.Name;
 
-		URenderAsset** CachedAsset = AssetMap.Find(AnimKey);
-		if (CachedAsset && *CachedAsset)
+		UAnimSequence* Sequence = nullptr;
+		if (URenderAsset* CachedAsset = AssetMap.FindRef(AnimKey))
 		{
 			HTR_LOG(Warning, "Asset key is already used: {}", AnimKey);
-			continue;
+			Sequence = Cast<UAnimSequence>(CachedAsset);
 		}
-
-		RegisterAsset(AnimKey, CreateAnimSequence(std::move(Data)));
-		++AnimCount;
+		else
+		{
+			Sequence = CreateAnimSequence(std::move(Data));
+			RegisterAsset(AnimKey, Sequence);
+			++AnimCount;
+		}
+		if (!FirstSequence) FirstSequence = Sequence;
 	}
+	FirstFbxAnimations.Add(Key, FirstSequence);
 
 	if (AnimCount > 0)
 	{

@@ -19,9 +19,16 @@ class UStaticMesh;
 class USkeletalMesh;
 class UMaterial;
 class USoundWave;
+class UAnimSequence;
 struct FMeshMaterialSlot;
 struct FSkeletalMeshData;
 struct FFbxBakeResult;
+
+struct FFbxAnimationRequest
+{
+	FString Path;
+	FString TakeName;
+};
 
 namespace fs = std::filesystem;
 
@@ -78,6 +85,9 @@ public:
 
 	// Key는 조회 및 등록 식별자이고 Path는 실제 FBX 파일 경로다.
 	USkeletalMesh* LoadFbxSkeletalMesh(const FString& Key, const FString& Path, FString& OutError, FFbxBakeResult* BakedData = nullptr);
+	UAnimSequence* LoadFbxAnimSequence(const FString& Path, FString& OutError, const FString& TakeName = {});
+	bool LoadFbxAnimSequences(const TArray<FFbxAnimationRequest>& Requests, TArray<UAnimSequence*>& OutSequences,
+		FString& OutError);
 
 	// FBX의 AnimStack마다 UAnimSequence를 생성해서 이름으로 키 등록
 	// 등록한 개수를 반환
@@ -101,6 +111,8 @@ private:
 
 	TMap<FString, FString> AssetPathMap;
 	TMap<FString, URenderAsset*> AssetMap;
+	// 빈 테이크 이름은 파일에서 처음으로 등록한 클립을 사용한다.
+	TMap<FString, UAnimSequence*> FirstFbxAnimations;
 	TMap<FString, USoundWave*> SoundMap;
 
 	//TMap<FString, UStaticMesh*> MeshMap;	// KEY: FILE NAME OR 쉐입 첫글자 대문자

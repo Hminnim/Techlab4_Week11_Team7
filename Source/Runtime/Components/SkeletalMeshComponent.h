@@ -5,12 +5,22 @@
 #include "Render/SkeletalMeshObject.h"
 #include "SkeletalMeshComponent.generated.h"
 
+class UAnimInstance;
+
 UCLASS()
 class USkeletalMeshComponent : public USkinnedMeshComponent
 {
 	GENERATED_BODY()
 
 public:
+	USkeletalMeshComponent();
+	~USkeletalMeshComponent() override;
+
+	// 구성된 인스턴스의 소유권을 넘긴다. nullptr이면 재생을 해제하고 기준 포즈로 되돌린다.
+	void SetAnimInstance(TUniquePtr<UAnimInstance> InInstance);
+	UAnimInstance* GetAnimInstance() const { return AnimInstance.get(); }
+	void TickComponent(float DeltaTime) override;
+
 	// 메시 교체 시 기준 포즈로 초기화한다. nullptr이면 리소스와 본 자세를 비운다.
 	void SetSkeletalMesh(USkeletalMesh* InMesh);
 	USkeletalMesh* GetSkeletalMesh() const { return SkeletalMesh; }
@@ -35,8 +45,12 @@ protected:
 	void DestroyRenderState() override;
 
 private:
+	void InitializeAnimation();
+
 	// 리소스 변경은 자세 초기화를 위해 SetSkeletalMesh를 거친다.
 	UPROPERTY(EditAnywhere)
 	USkeletalMesh* SkeletalMesh = nullptr;
 	TUniquePtr<FSkeletalMeshObject> MeshObject;
+	TUniquePtr<UAnimInstance> AnimInstance;
+	bool bAnimationInitialized = false;
 };
