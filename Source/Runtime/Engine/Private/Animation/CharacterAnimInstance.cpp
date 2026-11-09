@@ -4,48 +4,58 @@
 
 #include <utility>
 
-bool UCharacterAnimInstance::ConfigureAnimations(UAnimSequence* Idle, UAnimSequence* Attack, UAnimSequence* Hit)
+namespace
 {
-	if (RootNode || !Idle || !Attack || !Hit)
+	bool IsPlayableClip(const UAnimSequence* Sequence)
+	{
+		return Sequence && Sequence->GetPlayLength() > 0.0f;
+	}
+
+	TUniquePtr<FAnimNode_SequencePlayer> MakeSequencePlayer(UAnimSequence* Sequence, bool bLoop)
+	{
+		auto Player = MakeUnique<FAnimNode_SequencePlayer>();
+		Player->SetSequence(Sequence);
+		Player->SetLoopAnimation(bLoop);
+		return Player;
+	}
+
+	auto MakeClipFinishedRule(const FAnimNode_SequencePlayer* Player)
+	{
+		// 노드 소유권은 상태 머신으로 이동하지만 주소는 유지된다.
+		return [Player]()
+		{
+			return Player->GetCurrentPlayTime() >= Player->GetSequence()->GetPlayLength();
+		};
+	}
+}
+
+bool UCharacterAnimInstance::ConfigureAnimations(UAnimSequence* Idle, UAnimSequence* Attack, UAnimSequence* Hit,
+	const FCharacterJumpClips& Jump)
+{
+	if (RootNode || !IsPlayableClip(Idle) || !IsPlayableClip(Attack) || !IsPlayableClip(Hit))
 	{
 		return false;
 	}
-	if (Idle->GetPlayLength() <= 0.0f || Attack->GetPlayLength() <= 0.0f || Hit->GetPlayLength() <= 0.0f)
-	{
-		return false;
-	}
 
-	auto IdlePlayer = MakeUnique<FAnimNode_SequencePlayer>();
-	IdlePlayer->SetSequence(Idle);
-	IdlePlayer->SetLoopAnimation(true);
-
-	auto AttackPlayer = MakeUnique<FAnimNode_SequencePlayer>();
-	AttackPlayer->SetSequence(Attack);
-	AttackPlayer->SetLoopAnimation(false);
-
-	auto HitPlayer = MakeUnique<FAnimNode_SequencePlayer>();
-	HitPlayer->SetSequence(Hit);
-	HitPlayer->SetLoopAnimation(false);
-
-	// 소유권을 넘겨도 노드 주소는 유지된다. 종료 조건은 실제 재생 시간을 읽는다.
-	FAnimNode_SequencePlayer* AttackNode = AttackPlayer.get();
-	FAnimNode_SequencePlayer* HitNode = HitPlayer.get();
-	return ConfigureStateMachine(std::move(IdlePlayer), std::move(AttackPlayer), std::move(HitPlayer),
-		[AttackNode]()
-		{
-			return AttackNode->GetCurrentPlayTime() >= AttackNode->GetSequence()->GetPlayLength();
-		},
-		[HitNode]()
-		{
-			return HitNode->GetCurrentPlayTime() >= HitNode->GetSequence()->GetPlayLength();
-		});
+	auto AttackPlayer = MakeSequencePlayer(Attack, false);
+	auto HitPlayer = MakeSequencePlayer(Hit, false);
+	const auto IsAttackFinished = MakeClipFinishedRule(AttackPlayer.get());
+	const auto IsHitFinished = MakeClipFinishedRule(HitPlayer.get());
+	return ConfigureStateMachine(MakeSequencePlayer(Idle, true), std::move(AttackPlayer), std::move(HitPlayer),
+		IsAttackFinished, IsHitFinished, Jump);
 }
 
 bool UCharacterAnimInstance::ConfigureStateMachine(TUniquePtr<FAnimNode_Base> LocomotionNode,
 	TUniquePtr<FAnimNode_Base> AttackNode, TUniquePtr<FAnimNode_Base> HitNode,
-	std::function<bool()> IsAttackFinished, std::function<bool()> IsHitFinished)
+	std::function<bool()> IsAttackFinished, std::function<bool()> IsHitFinished,
+	const FCharacterJumpClips& Jump)
 {
 	if (RootNode || !LocomotionNode || !AttackNode || !HitNode || !IsAttackFinished || !IsHitFinished)
+	{
+		return false;
+	}
+	const bool bHasJump = Jump.Start || Jump.Loop || Jump.Land;
+	if (bHasJump && (!IsPlayableClip(Jump.Start) || !IsPlayableClip(Jump.Loop) || !IsPlayableClip(Jump.Land)))
 	{
 		return false;
 	}
@@ -55,9 +65,43 @@ bool UCharacterAnimInstance::ConfigureStateMachine(TUniquePtr<FAnimNode_Base> Lo
 	HitState = StateMachine.AddState(FName("Hit"), std::move(HitNode));
 
 	StateMachine.AddAnyStateTransition(HitState, [this]() { return bHitRequested; });
+	if (bHasJump)
+	{
+		JumpFromState = LocomotionState;
+		auto StartPlayer = MakeSequencePlayer(Jump.Start, false);
+		auto LandPlayer = MakeSequencePlayer(Jump.Land, false);
+		const auto IsStartFinished = MakeClipFinishedRule(StartPlayer.get());
+		const auto IsLandFinished = MakeClipFinishedRule(LandPlayer.get());
+		const int32 JumpStartState = StateMachine.AddState(FName("JumpStart"), std::move(StartPlayer));
+		const int32 JumpLoopState = StateMachine.AddState(FName("JumpLoop"), MakeSequencePlayer(Jump.Loop, true));
+		const int32 JumpLandState = StateMachine.AddState(FName("JumpLand"), std::move(LandPlayer));
+
+		const auto ConsumeLanding = [this]()
+		{
+			if (JumpPhase != EJumpPhase::Landed) return false;
+			JumpPhase = EJumpPhase::Grounded;
+			return true;
+		};
+		StateMachine.AddTransition(LocomotionState, JumpStartState, [this]() { return JumpPhase != EJumpPhase::Grounded; });
+		StateMachine.AddTransition(JumpStartState, JumpLandState, ConsumeLanding);
+		StateMachine.AddTransition(JumpStartState, JumpLoopState, IsStartFinished);
+		StateMachine.AddTransition(JumpLoopState, JumpLandState, ConsumeLanding);
+		StateMachine.AddTransition(JumpLandState, LocomotionState, IsLandFinished);
+		StateMachine.AddTransition(HitState, JumpLoopState, [this, IsHitFinished]()
+		{
+			return JumpPhase == EJumpPhase::Airborne && IsHitFinished();
+		});
+		StateMachine.AddTransition(HitState, JumpLandState, [this, IsHitFinished, ConsumeLanding]()
+		{
+			return JumpPhase == EJumpPhase::Landed && IsHitFinished() && ConsumeLanding();
+		});
+	}
 	StateMachine.AddTransition(LocomotionState, AttackState, [this]() { return bAttackRequested; });
 	StateMachine.AddTransition(AttackState, LocomotionState, std::move(IsAttackFinished));
-	StateMachine.AddTransition(HitState, LocomotionState, std::move(IsHitFinished));
+	StateMachine.AddTransition(HitState, LocomotionState, [this, IsHitFinished = std::move(IsHitFinished)]()
+	{
+		return JumpPhase == EJumpPhase::Grounded && IsHitFinished();
+	});
 	StateMachine.SetStateRestartOnReentry(HitState, bRestartHitOnReentry);
 	StateMachine.Start(LocomotionState);
 	RootNode = &StateMachine;
@@ -67,10 +111,29 @@ bool UCharacterAnimInstance::ConfigureStateMachine(TUniquePtr<FAnimNode_Base> Lo
 void UCharacterAnimInstance::NativeInitializeAnimation()
 {
 	Speed = 0.0f;
+	JumpPhase = EJumpPhase::Grounded;
 	bPendingAttack = false;
 	bPendingHit = false;
 	bAttackRequested = false;
 	bHitRequested = false;
+}
+
+bool UCharacterAnimInstance::RequestJump()
+{
+	if (JumpFromState < 0 || StateMachine.GetCurrentState() != JumpFromState || JumpPhase != EJumpPhase::Grounded)
+	{
+		return false;
+	}
+	JumpPhase = EJumpPhase::Airborne;
+	return true;
+}
+
+void UCharacterAnimInstance::NotifyLanded()
+{
+	if (JumpPhase == EJumpPhase::Airborne)
+	{
+		JumpPhase = EJumpPhase::Landed;
+	}
 }
 
 void UCharacterAnimInstance::NativeUpdateAnimation(float DeltaSeconds)

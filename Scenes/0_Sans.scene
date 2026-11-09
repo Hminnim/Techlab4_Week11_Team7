@@ -1010,7 +1010,7 @@
                     ],
                     "Name": "ASkeletalMeshActor_4",
                     "Properties": {
-                        "ScriptPath": "Scripts/0_Sans_ASkeletalMeshActor_4.lua",
+                        "ScriptPath": "Scripts/character_animation.lua",
                         "bActorEnableCollision": true
                     }
                 }

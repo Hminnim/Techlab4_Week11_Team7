@@ -322,7 +322,8 @@ namespace
 
 	bool ConfigureCharacterAnimations(const FLuaActorRef& Ref,
 		const FString& IdlePath, const FString& AttackPath, const FString& HitPath,
-		sol::optional<FString> IdleTake, sol::optional<FString> AttackTake, sol::optional<FString> HitTake)
+		sol::optional<FString> IdleTake, sol::optional<FString> AttackTake, sol::optional<FString> HitTake,
+		sol::optional<sol::table> JumpSpec)
 	{
 		USkeletalMeshComponent& Component = SkeletalMeshComponentOf(Ref);
 		if (!Component.GetSkeletalMesh())
@@ -330,19 +331,30 @@ namespace
 			throw sol::error("Assign a skeletal mesh before configuring character animations.");
 		}
 
-		auto LoadClip = [](const FString& Path, const sol::optional<FString>& Take)
+		TArray<FFbxAnimationRequest> Requests =
 		{
-			FString Error;
-			UAnimSequence* Sequence = UAssetManager::Get().LoadFbxAnimSequence(Path, Error, Take.value_or(FString{}));
-			if (!Sequence) throw sol::error("Cannot load animation '" + Path + "': " + Error);
-			return Sequence;
+			{ IdlePath, IdleTake.value_or(FString{}) },
+			{ AttackPath, AttackTake.value_or(FString{}) },
+			{ HitPath, HitTake.value_or(FString{}) }
 		};
-		UAnimSequence* Idle = LoadClip(IdlePath, IdleTake);
-		UAnimSequence* Attack = LoadClip(AttackPath, AttackTake);
-		UAnimSequence* Hit = LoadClip(HitPath, HitTake);
+		if (JumpSpec)
+		{
+			const FString JumpPath = JumpSpec->get<FString>("path");
+			Requests.Add({ JumpPath, JumpSpec->get<FString>("start") });
+			Requests.Add({ JumpPath, JumpSpec->get<FString>("loop") });
+			Requests.Add({ JumpPath, JumpSpec->get<FString>("land") });
+		}
 
+		TArray<UAnimSequence*> Clips;
+		FString Error;
+		if (!UAssetManager::Get().LoadFbxAnimSequences(Requests, Clips, Error))
+		{
+			throw sol::error(Error);
+		}
+
+		const FCharacterJumpClips Jump = JumpSpec ? FCharacterJumpClips{ Clips[3], Clips[4], Clips[5] } : FCharacterJumpClips{};
 		TUniquePtr<UCharacterAnimInstance> Instance(NewObject<UCharacterAnimInstance>(&Component));
-		if (!Instance->ConfigureAnimations(Idle, Attack, Hit))
+		if (!Instance->ConfigureAnimations(Clips[0], Clips[1], Clips[2], Jump))
 		{
 			throw sol::error("Cannot configure character animations. Each clip must have a positive duration.");
 		}
@@ -358,6 +370,8 @@ namespace
 			"ConfigureCharacterAnimations", &ConfigureCharacterAnimations,
 			"RequestAnimAttack", [](const FLuaActorRef& Ref) { CharacterAnimationOf(Ref).RequestAttack(); },
 			"RequestAnimHit", [](const FLuaActorRef& Ref) { CharacterAnimationOf(Ref).RequestHit(); },
+			"RequestAnimJump", [](const FLuaActorRef& Ref) { return CharacterAnimationOf(Ref).RequestJump(); },
+			"NotifyAnimLanded", [](const FLuaActorRef& Ref) { CharacterAnimationOf(Ref).NotifyLanded(); },
 			"SetRestartHitOnReentry", [](const FLuaActorRef& Ref, bool bEnabled) { CharacterAnimationOf(Ref).SetRestartHitOnReentry(bEnabled); },
 
 			"PlaySequence", [](const FLuaActorRef& Ref) { if (ULevelSequencePlayer* P = SequencePlayerOf(Ref)) P->Play(); },
