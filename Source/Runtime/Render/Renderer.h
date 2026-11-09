@@ -10,6 +10,7 @@
 #include "Render/Buffer.h"
 #include "MeshPassProcessor.h"
 #include <span>
+#include "Core/Stats/LightweightStats.h"
 
 class FSkyboxRenderer;
 class FHeightFogRenderer;
@@ -30,6 +31,13 @@ public:
 	// 패스의 의미를 해석하지 않고 준비된 GPU 상태와 드로우만 제출한다.
 	void UploadViewMatrix(const FMatrix& ViewProjection);
 	void DrawMeshes(std::span<const FMeshDrawBatch> Batches);
+	void BindSkinningBuffers(const FStructuredBuffer* SkinWeightBuffer, const FStructuredBuffer* SkinningMatrixBuffer);
+	void BeginSkinningProfileFrame();
+	void EndSkinningProfileFrame();
+	// 커스텀 외곽선도 공통 메시 드로우와 같은 GPU 집계에 포함한다.
+	uint32 BeginSkinningDrawProfile();
+	void EndSkinningDrawProfile(uint32 QueryIndex);
+	const FCycleStatData& GetSkinningDrawGPUStats() const { return SkinningDrawGPUStats; }
 
 	// 오클루전 객체 조회
 	FGPUOcclusion& GetGPUOcclusion() { return GPUOcclusion; }
@@ -64,11 +72,33 @@ private:
 	TUniquePtr<FConstantBuffer> PerObjectSlotCB;
 	TUniquePtr<FConstantBuffer> ToneMapConstants;
 	TUniquePtr<FConstantBuffer> DecalCB;
+	TUniquePtr<FConstantBuffer> SkinningCB[2];
 	uint32 PerObjectSlotCapacity = 0;
 	bool bUsePerObjectSlots = false;
 	TArray<ComPtr<ID3D11Query>> OcclusionQueries;
 	ComPtr<ID3D11DepthStencilState> DepthLessEqualReadOnly;
 	FGPUOcclusion GPUOcclusion;
+
+	struct FSkinningDrawQuery
+	{
+		ComPtr<ID3D11Query> Start;
+		ComPtr<ID3D11Query> End;
+	};
+	struct FSkinningFrameQuery
+	{
+		ComPtr<ID3D11Query> Disjoint;
+		TArray<FSkinningDrawQuery> Draws;
+		uint32 NumDraws = 0;
+		uint32 ModeRevision = 0;
+		bool bPending = false;
+		bool bValid = true;
+	};
+	// 이전 프레임 결과를 기다리지 않고 회수한다. 드로우 쿼리는 용량을 재사용한다.
+	FSkinningFrameQuery SkinningFrameQueries[4];
+	uint32 NextSkinningFrameQuery = 0;
+	int32 ActiveSkinningFrameQuery = INDEX_NONE;
+	uint32 SkinningProfileRevision = 0;
+	FCycleStatData SkinningDrawGPUStats;
 
 	TUniquePtr<FSkyboxRenderer> Skybox;
 	TUniquePtr<FHeightFogRenderer> HeightFog;

@@ -1,5 +1,6 @@
 // Resources/Shader/ShadowDepth.hlsl
 #pragma pack_matrix(row_major)
+#include "Skinning.hlsli"
 
 cbuffer ViewConstants : register(b0)
 {
@@ -42,8 +43,10 @@ float ComputeDepthBias(float3 WorldNormal)
     return ShadowParams.x + ShadowParams.y * Slope;
 }
 
-VS_OUTPUT mainVS(VS_INPUT Input)
+VS_OUTPUT mainVS(VS_INPUT Input, uint VertexID : SV_VertexID)
 {
+    float4 Tangent = float4(1, 0, 0, 1);
+    ApplySkinning(VertexID, Input.Position, Input.Normal, Tangent);
     VS_OUTPUT Output;
     const float4 WorldPosition = mul(float4(Input.Position, 1.0f), World);
     const float3 WorldNormal = normalize(mul(float4(Input.Normal, 0.0f), NormalMatrix).xyz);

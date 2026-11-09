@@ -1,4 +1,5 @@
 #pragma pack_matrix(row_major)
+#include "Skinning.hlsli"
 // View별 행렬과 렌더 타깃 픽셀 크기·Outline 확장량을 전달한다.
 cbuffer constants : register(b0)
 {
@@ -27,26 +28,31 @@ struct PS_INPUT
 };
 
 // 중심에서 바깥으로 향하는 투영 방향을 픽셀 공간에서 정규화해 일정 두께로 확장한다.
-PS_INPUT mainVS(VS_INPUT input)
+PS_INPUT mainVS(VS_INPUT input, uint VertexID : SV_VertexID)
 {
+    bool ExpandOutline = ViewportAndThickness.z != 0.0f;
+    ApplySkinning(VertexID, input.position, input.normal, input.tangent, ExpandOutline);
     PS_INPUT output;
     
     const matrix worldViewProjection = mul(World, ViewProjection);
     
     float4 clipPosition = mul(float4(input.position, 1.0f), worldViewProjection);
-    float4 worldNormal = mul(float4(input.normal, 0.0f), NormalMatrix);
-    const float4 clipDirection = mul(worldNormal, ViewProjection);
-    const float2 viewportSize = max(ViewportAndThickness.xy, float2(1.0f, 1.0f));
-    
-    // 원근 나눗셈의 방향 미분을 사용하고 W 보정으로 원근·직교 모두 픽셀 폭을 유지한다.
-    float2 pixelDirection = (clipDirection.xy * clipPosition.w - clipPosition.xy * clipDirection.w) * viewportSize;
-    
-    const float lengthSquared = dot(pixelDirection, pixelDirection);
-    
-    if (clipPosition.w > 1.0e-6f && lengthSquared > 1.0e-12f)
+    // 두께 0인 마스크 패스에서는 확장 방향과 노멀 투영을 계산하지 않는다.
+    [branch]
+    if (ExpandOutline)
     {
-        pixelDirection *= rsqrt(lengthSquared);
-        clipPosition.xy += pixelDirection * (2.0f * ViewportAndThickness.z / viewportSize) * clipPosition.w;
+        float4 worldNormal = mul(float4(input.normal, 0.0f), NormalMatrix);
+        const float4 clipDirection = mul(worldNormal, ViewProjection);
+        const float2 viewportSize = max(ViewportAndThickness.xy, float2(1.0f, 1.0f));
+
+        // 원근 나눗셈의 방향 미분을 사용하고 W 보정으로 원근·직교 모두 픽셀 폭을 유지한다.
+        float2 pixelDirection = (clipDirection.xy * clipPosition.w - clipPosition.xy * clipDirection.w) * viewportSize;
+        const float lengthSquared = dot(pixelDirection, pixelDirection);
+        if (clipPosition.w > 1.0e-6f && lengthSquared > 1.0e-12f)
+        {
+            pixelDirection *= rsqrt(lengthSquared);
+            clipPosition.xy += pixelDirection * (2.0f * ViewportAndThickness.z / viewportSize) * clipPosition.w;
+        }
     }
     output.position = clipPosition;
     output.color = float4(0.87f, 0.56f, 0.13f, 1.0f);

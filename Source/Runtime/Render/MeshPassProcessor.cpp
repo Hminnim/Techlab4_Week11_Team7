@@ -42,6 +42,9 @@ namespace
 		if (!Geometry.IsValid() || !Material) return false;
 		Batch.VertexBuffer = Geometry.VertexBuffer;
 		Batch.IndexBuffer = Geometry.IndexBuffer;
+		Batch.SkinWeightBuffer = Geometry.SkinWeightBuffer;
+		Batch.SkinningMatrixBuffer = Geometry.SkinningMatrixBuffer;
+		Batch.bSkeletalMesh = Geometry.bSkeletalMesh;
 		const bool bUsesUberShader = Pass == EMeshPassType::Forward || Pass == EMeshPassType::WorldNormal;
 		if (bUsesUberShader)
 		{
@@ -265,6 +268,9 @@ bool FMeshPassProcessor::Build(const TArray<FPrimitiveSceneProxy*>& ShadowMeshes
 		const FMeshGeometry Geometry = Proxy->GetGeometry(LOD);
 		Batch.VertexBuffer = Geometry.VertexBuffer;
 		Batch.IndexBuffer = Geometry.IndexBuffer;
+		Batch.SkinWeightBuffer = Geometry.SkinWeightBuffer;
+		Batch.SkinningMatrixBuffer = Geometry.SkinningMatrixBuffer;
+		Batch.bSkeletalMesh = Geometry.bSkeletalMesh;
 		Batch.bUseObjectSlots = false;
 		Batch.bBindViewConstants = true;
 		Batch.ObjectBindingSlot = 2;

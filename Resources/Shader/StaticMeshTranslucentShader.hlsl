@@ -1,4 +1,5 @@
 #pragma pack_matrix(row_major)
+#include "Skinning.hlsli"
 cbuffer Viewconstants : register(b0)
 {
     matrix VP;
@@ -80,8 +81,9 @@ float FogTransmittance(float3 Position)
     return max(saturate(T), 1.0f - FogDistanceViewport.x);
 }
 
-PS_INPUT mainVS(VS_INPUT input)
+PS_INPUT mainVS(VS_INPUT input, uint VertexID : SV_VertexID)
 {
+    ApplySkinning(VertexID, input.p, input.n, input.tangent);
     PS_INPUT output;
 
     float4 WorldPosition = mul(float4(input.p, 1.0f), World);

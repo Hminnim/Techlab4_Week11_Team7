@@ -52,6 +52,7 @@ void FOutlineRenderer::OnRender(const FOutline& InOutline, const FMatrix& InView
 
 	RenderCommand::BindVertexBuffer(Geometry.VertexBuffer);
 	RenderCommand::BindIndexBuffer(Geometry.IndexBuffer);
+	Renderer->BindSkinningBuffers(Geometry.SkinWeightBuffer, Geometry.SkinningMatrixBuffer);
 	RenderCommand::BindConstantBuffer(0, ConstantBuffer.get(), EShaderBindFlagBits::Vertex);
 
 	const FMatrix OriginalWorld = InOutline.GetWorldMatrix();
@@ -61,6 +62,7 @@ void FOutlineRenderer::OnRender(const FOutline& InOutline, const FMatrix& InView
 	const float ViewportWidth = static_cast<float>(Viewport.Width);
 	const float ViewportHeight = static_cast<float>(Viewport.Height);
 	const uint32 IndexCount = Geometry.IndexBuffer->GetIndexCount();
+	const uint32 QueryIndex = Geometry.bSkeletalMesh ? Renderer->BeginSkinningDrawProfile() : ~0u;
 
 	// 1패스: 두께 0(확장 없음)으로 선택 메시 영역을 스텐실에 찍는다.
 	FOutlineData MaskConst = { World, NormalMatrix, ViewProj, FVector4(ViewportWidth, ViewportHeight, 0.0f, 0.0f) };
@@ -75,6 +77,7 @@ void FOutlineRenderer::OnRender(const FOutline& InOutline, const FMatrix& InView
 	RenderCommand::DrawIndexed(IndexCount);
 
 	// 이후 패스(Gizmo 등)에 스텐실·블렌드 상태가 새지 않도록 기본값으로 되돌린다.
+	Renderer->EndSkinningDrawProfile(QueryIndex);
 	RenderCommand::SetBlendState(EBlendState::Opaque);
 	RenderCommand::SetDepthStencilState(EDepthStencilState::Default);
 }
