@@ -42,8 +42,8 @@ public:
 	// 메시의 Skin 연결 여부를 기준으로 임포트할 타입을 판별한다.
 	static bool DetectMeshType(const FString& Path, EFbxMeshType& OutType, FString& OutError);
 
-	// 첫번째 AnimStack을 프레임마다 샘플링해서 Bone별 키 트랙으로 생성.
-	static bool LoadAnimation(const FString& Path, FAnimSequenceImportData& OutData, FString& OutError);
+	// FBX의 AnimStack마다 프레임을 샘플링해 Bone별 키 트랙을 만든다.
+	static bool LoadAnimations(const FString& Path, TArray<FAnimSequenceImportData>& OutAnimations, FString& OutError);
 
 private:
 	// FBX 파일을 읽고 Manager가 소유하는 Scene을 생성한다.

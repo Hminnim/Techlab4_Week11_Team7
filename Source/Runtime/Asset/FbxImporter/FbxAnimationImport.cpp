@@ -40,9 +40,16 @@ namespace
 			CollectBoneNodes(Node->GetChild(i), ChildParentIndex, OutBones);
 		}
 	}
+
+	FString MakeAnimationName(const char* StackName)
+	{
+		const FString FullName = StackName ? StackName : "";
+		const size_t Bar = FullName.find_last_of('|');
+		return Bar == FString::npos ? FullName : FullName.substr(Bar + 1);
+	}
 }
 
-bool FFbxImporter::LoadAnimation(const FString& Path, FAnimSequenceImportData& OutData, FString& OutError)
+bool FFbxImporter::LoadAnimations(const FString& Path, TArray<FAnimSequenceImportData>& OutAnimations, FString& OutError)
 {
 	OutError.clear();
 
@@ -56,24 +63,19 @@ bool FFbxImporter::LoadAnimation(const FString& Path, FAnimSequenceImportData& O
 
 	FbxScene* Scene = nullptr;
 	if (!LoadFbxScene(*Manager.Get(), Path, Scene, OutError))
-	{
 		return false;
+
+	// 애니메이션이 없는 메시 FBX의 경우 바로 true 반환
+	const int32 AnimCount = Scene->GetSrcObjectCount<FbxAnimStack>();
+	if (AnimCount <= 0)
+	{
+		OutAnimations.Empty();
+		return true;
 	}
 
-	if (!ConvertAndTriangulateScene(*Manager.Get(), *Scene, OutError))
-	{
+	if (!ConvertScene(*Manager.Get(), *Scene, OutError))
 		return false;
-	}
 
-	FbxAnimStack* AnimStack = Scene->GetSrcObject<FbxAnimStack>(0);
-	if (!AnimStack)
-	{
-		OutError = "No FbxAnimStack found.";
-		return false;
-	}
-
-	Scene->SetCurrentAnimationStack(AnimStack);
-	
 	const FbxGlobalSettings& Settings = Scene->GetGlobalSettings();
 	const FbxTime::EMode TimeMode = Settings.GetTimeMode();
 
@@ -91,14 +93,6 @@ bool FFbxImporter::LoadAnimation(const FString& Path, FAnimSequenceImportData& O
 		return false;
 	}
 
-	const FbxTimeSpan Span = AnimStack->GetLocalTimeSpan();
-	const int NumFrames = (int)std::lround(Span.GetDuration().GetFrameCountPrecise(TimeMode));
-	if (NumFrames <= 0)
-	{
-		OutError = "AnimStack has no frames.";
-		return false;
-	}
-
 	TArray<FFbxBoneNode> Bones;
 	CollectBoneNodes(Scene->GetRootNode(), INDEX_NONE, Bones);
 
@@ -108,47 +102,71 @@ bool FFbxImporter::LoadAnimation(const FString& Path, FAnimSequenceImportData& O
 		return false;
 	}
 
-	FAnimSequenceImportData Imported;
-	Imported.FrameRate = FFrameRate(static_cast<int32>(RoundedFps), 1);
-	Imported.NumberOfFrames = NumFrames;
-	Imported.Tracks.SetNum(Bones.Num());
-
-	for (int BoneIndex = 0; BoneIndex < Bones.Num(); ++BoneIndex)
-		Imported.Tracks[BoneIndex].Name = FName(Bones[BoneIndex].Node->GetName());
-
+	TArray<FAnimSequenceImportData> ImportedAnimations;
 	TArray<FbxAMatrix> Globals;
 	Globals.SetNum(Bones.Num());
-	for (int K = 0; K <= NumFrames; ++K)
+
+	for (int i = 0; i < AnimCount; ++i)
 	{
-		FbxTime Offset;
-		Offset.SetFrame(K, TimeMode);
-		const FbxTime Time = Span.GetStart() + Offset;
+		FbxAnimStack* AnimStack = Scene->GetSrcObject<FbxAnimStack>(i);
+
+		if (!AnimStack)
+		{
+			HTR_LOG(Warning, "FbxAnimStack not found: index {}", i);
+			continue;
+		}
+
+		Scene->SetCurrentAnimationStack(AnimStack);
+
+		const FbxTimeSpan Span = AnimStack->GetLocalTimeSpan();
+		const int NumFrames = (int)std::lround(Span.GetDuration().GetFrameCountPrecise(TimeMode));
+
+		if (NumFrames <= 0)
+			continue;
+
+		FAnimSequenceImportData Imported;
+		Imported.Name = MakeAnimationName(AnimStack->GetName());
+		Imported.FrameRate = FFrameRate(static_cast<int32>(RoundedFps), 1);
+		Imported.NumberOfFrames = NumFrames;
+		Imported.Tracks.SetNum(Bones.Num());
 
 		for (int BoneIndex = 0; BoneIndex < Bones.Num(); ++BoneIndex)
+			Imported.Tracks[BoneIndex].Name = FName(Bones[BoneIndex].Node->GetName());
+
+		for (int K = 0; K <= NumFrames; ++K)
 		{
-			const FFbxBoneNode& Bone = Bones[BoneIndex];
+			FbxTime Offset;
+			Offset.SetFrame(K, TimeMode);
+			const FbxTime Time = Span.GetStart() + Offset;
 
-			Globals[BoneIndex] = Bone.Node->EvaluateGlobalTransform(Time);
-			FbxAMatrix Local = Globals[BoneIndex];
-
-			if (Bone.ParentIndex != INDEX_NONE)
+			for (int BoneIndex = 0; BoneIndex < Bones.Num(); ++BoneIndex)
 			{
-				Local = Globals[Bone.ParentIndex].Inverse() * Globals[BoneIndex];
-			}
+				const FFbxBoneNode& Bone = Bones[BoneIndex];
 
-			FRawAnimSequenceTrack& InternalTrack = Imported.Tracks[BoneIndex].InternalTrack;
-			FTransform Key;
-			if (!ConvertFbxMatrixToTransform(Local, Key, OutError))
-			{
-				OutError = std::format("Bone '{}' frame {}: {}", Bone.Node->GetName(), K, OutError);
-				return false;
+				Globals[BoneIndex] = Bone.Node->EvaluateGlobalTransform(Time);
+				FbxAMatrix Local = Globals[BoneIndex];
+
+				if (Bone.ParentIndex != INDEX_NONE)
+				{
+					Local = Globals[Bone.ParentIndex].Inverse() * Globals[BoneIndex];
+				}
+
+				FRawAnimSequenceTrack& InternalTrack = Imported.Tracks[BoneIndex].InternalTrack;
+				FTransform Key;
+				if (!ConvertFbxMatrixToTransform(Local, Key, OutError))
+				{
+					OutError = std::format("Bone '{}' frame {}: {}", Bone.Node->GetName(), K, OutError);
+					return false;
+				}
+				InternalTrack.PosKeys.Add(Key.Location);
+				InternalTrack.RotKeys.Add(Key.Rotation.Quaternion());
+				InternalTrack.ScaleKeys.Add(Key.Scale);
 			}
-			InternalTrack.PosKeys.Add(Key.Location);
-			InternalTrack.RotKeys.Add(Key.Rotation.Quaternion());
-			InternalTrack.ScaleKeys.Add(Key.Scale);
 		}
+
+		ImportedAnimations.Add(std::move(Imported));
 	}
 
-	OutData = std::move(Imported);
+	OutAnimations = std::move(ImportedAnimations);
 	return true;
 }

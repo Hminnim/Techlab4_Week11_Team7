@@ -34,6 +34,7 @@ struct FBoneAnimationTrack
 // UAnimDataModel을 채우는데 사용.
 struct FAnimSequenceImportData
 {
+	FString Name;
 	FFrameRate FrameRate = FFrameRate(30, 1);
 	int32 NumberOfFrames = 0;					// 키 수 = NumberOfFrames + 1
 	TArray<FBoneAnimationTrack> Tracks;			// 본마다 한개
