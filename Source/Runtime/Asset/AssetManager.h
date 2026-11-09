@@ -79,6 +79,10 @@ public:
 	// Key는 조회 및 등록 식별자이고 Path는 실제 FBX 파일 경로다.
 	USkeletalMesh* LoadFbxSkeletalMesh(const FString& Key, const FString& Path, FString& OutError, FFbxBakeResult* BakedData = nullptr);
 
+	// FBX의 AnimStack마다 UAnimSequence를 생성해서 이름으로 키 등록
+	// 등록한 개수를 반환
+	int32 LoadFbxAnimations(const FString& Key, const FString& Path, FString& OutError);
+
 	FLODGenerateResult GenerateStaticMeshLODs(UStaticMesh& Mesh,const FLODGenerateRequest& Request);
 
 	// 원본 좌표축이 엔진과 다른 메시를 로드 후 돌린다 (정점·법선·AABB·삼각형 BVH·GPU 정점 버퍼를 다시 만든다).

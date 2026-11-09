@@ -25,7 +25,8 @@
 #include <utility>
 
 #include "FbxImporter/SkeletalPoseFile.h"
-
+#include "Engine/Classes/Animation/AnimSequence.h"
+#include "FbxImporter/FbxAnimBake.h"
 
 namespace
 {
@@ -127,6 +128,16 @@ namespace
 	FString MakeAssetKey(const FString& Path)
 	{
 		return fs::relative(Path, "Assets").generic_string();
+	}
+
+	// 임포터가 만든 데이터를 UAnimSequence로 감싼다.
+	UAnimSequence* CreateAnimSequence(FAnimSequenceImportData&& Data)
+	{
+		UAnimSequence* Sequence = NewObject<UAnimSequence>();
+		UAnimDataModel* DataModel = Sequence->CreateDataModel();
+		DataModel->SetFrameRateAndNumberOfFrames(Data.FrameRate, Data.NumberOfFrames);
+		DataModel->BoneAnimationTracks = std::move(Data.Tracks);
+		return Sequence;
 	}
 }
 
@@ -359,6 +370,10 @@ void UAssetManager::LoadAsset(const FString& Key, const FString& Path) {
 		if (MeshType == EFbxMeshType::SkeletalMesh)
 		{
 			Mesh = LoadFbxSkeletalMesh(Key, Path, Error, BakedData);
+			if (Mesh)
+			{
+				LoadFbxAnimations(Key, Path, Error);
+			}
 		}
 		else
 		{
@@ -764,6 +779,50 @@ USkeletalMesh* UAssetManager::LoadFbxSkeletalMesh(const FString& Key, const FStr
 	AssetPathMap.Add(Key, Path);
 
 	return SkeletalMesh;
+}
+
+int32 UAssetManager::LoadFbxAnimations(const FString& Key, const FString& Path, FString& OutError)
+{
+	OutError.clear();
+	TArray<FAnimSequenceImportData> AnimData;
+
+	if (!FFbxAnimBake::ReadBaked(Path, AnimData))
+	{
+		if (!FFbxImporter::LoadAnimations(Path, AnimData, OutError))
+		{
+			HTR_LOG(Error, "Failed to load animations for '{}': {}", Path, OutError);
+			return 0;
+		}
+
+		// 애니메이션이 0개여도 저장해서 다음 실행부터 이 FBX를 다시 열지 않는다.
+		if (!FFbxAnimBake::WriteBaked(Path, AnimData))
+		{
+			HTR_LOG(Warning, "Failed to save animation cache: {}", Path);
+		}
+	}
+
+	int32 AnimCount = 0;
+	for (FAnimSequenceImportData& Data : AnimData)
+	{
+		const FString AnimKey = Key + "/" + Data.Name;
+
+		URenderAsset** CachedAsset = AssetMap.Find(AnimKey);
+		if (CachedAsset && *CachedAsset)
+		{
+			HTR_LOG(Warning, "Asset key is already used: {}", AnimKey);
+			continue;
+		}
+
+		RegisterAsset(AnimKey, CreateAnimSequence(std::move(Data)));
+		++AnimCount;
+	}
+
+	if (AnimCount > 0)
+	{
+		HTR_LOG(Info, "Loaded {} animations from '{}'", AnimCount, Key);
+	}
+
+	return AnimCount;
 }
 
 bool UAssetManager::ReorientStaticMesh(UStaticMesh& Mesh, const std::function<FVector(const FVector&)>& Rotate)
