@@ -568,6 +568,39 @@ bool FSceneRenderer::AddWorldNormalPass(FRenderGraphBuilder& Graph, FRenderer* R
 		});
 }
 
+bool FSceneRenderer::AddBoneWeightPass(FRenderGraphBuilder& Graph, FRenderer* Renderer,
+	FSceneViewTargets& Targets, const FSceneRenderOptions& Options)
+{
+	const FRenderGraphTextureRef SceneColor = Graph.ImportTexture(Targets.SceneColor.get(), "SceneColor");
+	const FRenderGraphTextureRef Depth = Graph.ImportTexture(Targets.Depth.get(), "SceneDepth");
+	if (!SceneColor || !Depth) return false;
+
+	FRenderGraphRasterPassDesc Pass{};
+	Pass.Name = "BoneWeightHeatmap";
+	Pass.ColorAttachments = { { SceneColor, ERenderGraphLoadAction::Clear, { 0.0f, 0.0f, 0.0f, 1.0f } } };
+	Pass.DepthAttachment = { Depth, ERenderGraphLoadAction::Clear, 1.0f, 0 };
+	return Graph.AddRasterPass(std::move(Pass),
+		[this, Renderer, bDrawPrimitives = Options.bDrawPrimitives, BoneIndex = Options.BoneWeightBoneIndex]
+		{
+			if (!bDrawPrimitives) return;
+			FMeshPassProcessor Processor;
+			TArray<FMeshDrawBatch> Batches;
+			bCorePassSucceeded = Processor.Build(View, RenderData.RenderQueue,
+				&RenderData, EMeshPassType::BoneWeight, Batches);
+			if (!bCorePassSucceeded) return;
+
+			// HLSL b1의 int + int3 배치. 기존 배치 상수 업로드를 재사용한다.
+			const int32 Constants[4] = { BoneIndex, 0, 0, 0 };
+			for (FMeshDrawBatch& Batch : Batches)
+			{
+				std::memcpy(Batch.MaterialData.data(), Constants, sizeof(Constants));
+				Batch.MaterialDataSize = sizeof(Constants);
+			}
+			Renderer->UploadViewMatrix(View.ViewProjectionMatrix);
+			Renderer->DrawMeshes(Batches);
+		});
+}
+
 bool FSceneRenderer::AddCorePasses(FRenderGraphBuilder& Graph, FRenderer* Renderer, FSceneViewTargets& Targets,
 	const FSceneRenderOptions& Options, FSkyboxRenderer* Skybox)
 {
@@ -580,6 +613,8 @@ bool FSceneRenderer::AddCorePasses(FRenderGraphBuilder& Graph, FRenderer* Render
 
 	bCorePassSucceeded = true;
 	bTilesBuilt = false;
+	if (Options.BoneWeightBoneIndex >= 0)
+		return AddBoneWeightPass(Graph, Renderer, Targets, Options);
 	if (Options.bShowWorldNormal)
 		return AddWorldNormalPass(Graph, Renderer, Targets, Options);
 
@@ -908,6 +943,8 @@ bool FSceneRenderer::AddViewportPasses(FRenderGraphBuilder& Graph, FRenderer* Re
 	FSceneViewTargets& Targets, const FSceneRenderOptions& Options, FSkyboxRenderer* Skybox,
 	const FScenePassCallbacks& Callbacks) // 뷰포트에 그려져야 되는 패스들을 옵션에 따라 정해진 순서로 Graph에 등록
 {
+	// 표면 값 디버그 뷰는 색을 직접 출력하고, 본/기즈모 등 에디터 오버레이만 유지한다.
+	const bool bSurfaceDebugView = Options.bShowWorldNormal || Options.BoneWeightBoneIndex >= 0;
 	FSceneRenderOptions CoreOptions = Options;
 	if (Options.bShowLightCulling)
 	{
@@ -929,7 +966,7 @@ bool FSceneRenderer::AddViewportPasses(FRenderGraphBuilder& Graph, FRenderer* Re
 	bHasFog = false;
 	bFXAAPassSucceeded = true;
 
-	if (!Options.bShowWorldNormal && Options.bDrawPrimitives && Options.bEnableFog && Callbacks.HeightFog)
+	if (!bSurfaceDebugView && Options.bDrawPrimitives && Options.bEnableFog && Callbacks.HeightFog)
 	{
 		FRenderGraphRasterPassDesc Pass = MakeViewportPass("HeightFog", SceneColor);
 		Pass.ReadTextures = { Depth };
@@ -938,7 +975,7 @@ bool FSceneRenderer::AddViewportPasses(FRenderGraphBuilder& Graph, FRenderer* Re
 			bHasFog = DrawFog();
 			})) return false;
 	}
-	if (!Options.bShowWorldNormal && Options.bDrawPrimitives)
+	if (!bSurfaceDebugView && Options.bDrawPrimitives)
 	{
 		if (!Graph.AddRasterPass(MakeViewportPass("Translucent", SceneColor, Depth),
 			[this, Renderer, GetFog = Callbacks.TranslucentFogConstants]
@@ -946,18 +983,18 @@ bool FSceneRenderer::AddViewportPasses(FRenderGraphBuilder& Graph, FRenderer* Re
 			RenderTranslucent(Renderer, GetFog ? GetFog(bHasFog) : nullptr);
 			})) return false;
 	}
-	if (!Options.bShowWorldNormal && Callbacks.SceneText &&
+	if (!bSurfaceDebugView && Callbacks.SceneText &&
 		!Graph.AddRasterPass(MakeViewportPass("SceneText", SceneColor, Depth), Callbacks.SceneText))
 		return false;
 
-	if (!Options.bShowWorldNormal && Options.bShowSceneDepth && Callbacks.DepthVisualization)
+	if (!bSurfaceDebugView && Options.bShowSceneDepth && Callbacks.DepthVisualization)
 	{
 		FRenderGraphRasterPassDesc Pass = MakeViewportPass("SceneDepthVisualization", SceneColor);
 		Pass.ReadTextures = { Depth };
 		if (!Graph.AddRasterPass(std::move(Pass), Callbacks.DepthVisualization)) return false;
 	}
 
-	if (!Options.bShowWorldNormal && !Options.bShowSceneDepth &&
+	if (!bSurfaceDebugView && !Options.bShowSceneDepth &&
 		View.NeedsCameraOverlay(Options.bShowVignette, Options.bShowCameraOverlay))
 	{
 		const uint32 Width = Targets.SceneColor->GetWidth();
@@ -972,7 +1009,7 @@ bool FSceneRenderer::AddViewportPasses(FRenderGraphBuilder& Graph, FRenderer* Re
 	}
 
 	FRenderGraphTextureRef FinalColor = SceneColor;
-	if (!Options.bShowWorldNormal && Callbacks.FXAAOutput && Callbacks.FXAA)
+	if (!bSurfaceDebugView && Callbacks.FXAAOutput && Callbacks.FXAA)
 	{
 		FinalColor = Graph.ImportTexture(Callbacks.FXAAOutput, "FXAAOutput");
 		if (!FinalColor) return false;
@@ -984,7 +1021,7 @@ bool FSceneRenderer::AddViewportPasses(FRenderGraphBuilder& Graph, FRenderer* Re
 			})) return false;
 	}
 
-	if (Options.bShowLightCulling && Options.bDrawPrimitives && !Options.bShowWorldNormal)
+	if (Options.bShowLightCulling && Options.bDrawPrimitives && !bSurfaceDebugView)
 	{
 		FRenderGraphRasterPassDesc Debug = MakeViewportPass("LightCullingDebug", FinalColor);
 		Debug.ReadTextures = { Depth };
@@ -1011,7 +1048,7 @@ bool FSceneRenderer::AddViewportPasses(FRenderGraphBuilder& Graph, FRenderer* Re
 	}
 
 	const FSceneOverlayCallbacks& Overlay = Callbacks.Overlays;
-	if (Options.bShowCascade && Callbacks.CascadeVisualization)
+	if (Options.BoneWeightBoneIndex < 0 && Options.bShowCascade && Callbacks.CascadeVisualization)
 	{
 		FRenderGraphRasterPassDesc Pass = MakeViewportPass("CascadeFloorVisualization", FinalColor);
 		Pass.ReadTextures = { Depth };
@@ -1063,7 +1100,7 @@ bool FSceneRenderer::Render(FRenderer* Renderer, FSceneViewTargets& Targets, con
 
 	FFXAARenderer* FXAA = Renderer->GetFXAA();
 	const bool bUseFXAA = Options.bEnableFXAA && !Options.bShowSceneDepth &&
-		!Options.bShowWorldNormal && FXAA && FXAA->PrepareOutput(ColorTarget);
+		!Options.bShowWorldNormal && Options.BoneWeightBoneIndex < 0 && FXAA && FXAA->PrepareOutput(ColorTarget);
 	if (bUseFXAA)
 	{
 		Callbacks.FXAAOutput = FXAA->GetOutputTarget().get();

@@ -33,6 +33,8 @@ public:
 	bool OpenAsset(const FString& Path);
 	const FSkeletalPose& GetPreviewPose() const { return PreviewPose; }
 	int32 GetSelectedBoneIndex() const { return SelectedBoneIndex; }
+	// Heatmap을 그릴 수 없으면 -1을 반환해 일반 프리뷰 경로를 사용한다.
+	int32 GetBoneWeightBoneIndex() const;
 
 private:
 	void TickCameraInput();
@@ -69,6 +71,7 @@ private:
 	bool bRenderGrid = false;
 	bool bRenderMesh = true;
 	bool bRenderBones = true;
+	bool bShowBoneWeight = false;
 
 	FString CurrentAssetPath;
 	FReferenceSkeleton ReferenceSkeleton;
