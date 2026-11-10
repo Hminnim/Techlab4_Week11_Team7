@@ -58,6 +58,6 @@ private:
 	TUniquePtr<FSkeletalMeshObject> MeshObject;
 	TUniquePtr<UAnimInstance> AnimInstance;
 	bool bAnimationInitialized = false;
-	inline static bool bUseGPUSkinning = false;
+	inline static bool bUseGPUSkinning = true;
 	inline static uint32 SkinningModeRevision = 0;
 };
