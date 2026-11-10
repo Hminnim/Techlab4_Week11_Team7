@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Core/EngineString.h"
+#include "Core/Misc/Optional.h"
 #include "Math/EngineMath.h"
 #include "Math/Color.h"
 #include "Math/Transform.h"
@@ -65,12 +66,18 @@ DEFINE_PROPERTY_TYPE(FRotator, Rotator)
 DEFINE_PROPERTY_TYPE(FColor, Color)
 DEFINE_PROPERTY_TYPE(FLinearColor, LinearColor)
 
-//DragFloat, DragInt, DragFloat3, DragFloat4, ColorEdit4 등 ImGui 위젯과 관련된 메타데이터를 저장하는 구조체
-struct FProPertyWidgetMeta
+template <typename T>
+inline constexpr bool TSupportsNumericMeta =
+    std::is_same_v<T, float> || std::is_same_v<T, int32> || std::is_same_v<T, uint32> ||
+    std::is_same_v<T, FVector> || std::is_same_v<T, FVector4> || std::is_same_v<T, FRotator>;
+
+struct FPropertyMeta
 {
-	float MinValue;
-	float MaxValue;
-    float delta;
+    TOptional<double> ClampMin;
+    TOptional<double> ClampMax;
+    TOptional<double> UIMin;
+    TOptional<double> UIMax;
+    TOptional<double> Delta;
 };
 
 // 프로퍼티 지정자 (UE의 UPROPERTY 지정자에 대응)
@@ -104,6 +111,8 @@ struct FProperty
     FScriptStructAccessor ResolveScriptStruct = nullptr;
     const FEnumPropertyOps* Enum = nullptr;
     const FArrayPropertyOps* Array = nullptr;
+    FPropertyMeta Meta;
+    bool bUnsignedInt = false;
 
     bool HasAnyFlags(uint32 InFlags) const { return (Flags & InFlags) != 0; }
     const UScriptStruct* GetScriptStruct() const

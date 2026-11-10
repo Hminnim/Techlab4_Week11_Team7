@@ -333,6 +333,9 @@ namespace
 	{
 		for (const FProperty& Property : Fields)
 		{
+			if (Property.HasAnyFlags(CPF_Transient))
+				continue;
+
 			TOptional<FStructuredArchive::FSlot> Slot = Record.TryEnterField(Property.Name.c_str(), true);
 			if (!Slot.IsSet()) continue;
 

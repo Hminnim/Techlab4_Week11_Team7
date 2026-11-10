@@ -113,7 +113,8 @@ std::string GenerateHeader(const FHeaderInfo& Header, const std::string& ModuleN
                 const std::string Type = "decltype(ThisClass::" + Property.Name + ")";
                 if (!Property.Meta.empty())
                 {
-                    Lines.push_back("\t\tstatic_assert(TSupportsNumericMeta<" + Type + ">, \"" + Property.Name
+                    Lines.push_back("\t\tstatic_assert(TSupportsNumericMeta<" + Type + ">, \""
+                        + Header.RelativePath + "(" + std::to_string(Property.Line) + "): " + Property.Name
                         + ": meta is only allowed on float, int32, uint32, FVector, FVector4, FRotator properties.\");");
                 }
 

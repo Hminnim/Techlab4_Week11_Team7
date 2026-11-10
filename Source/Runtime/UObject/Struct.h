@@ -12,15 +12,21 @@ public:
 	const FProperty* FindProperty(const FString& InName) const;
 
 	template <typename T>
-	void AddProperty(const FString& InName, uint64 InOffset, uint32 InFlags = CPF_Default)
+	void AddProperty(const FString& InName, uint64 InOffset, uint32 InFlags = CPF_Default, const FPropertyMeta& InMeta = {})
 	{
-		Properties.Add(MakeProperty<T>(InName, InOffset, InFlags));
+		FProperty Property = MakeProperty<T>(InName, InOffset, InFlags);
+		Property.Meta = InMeta;
+		Properties.Add(std::move(Property));
 	}
 
 	template <typename T>
-	void AddProperty(const FString& InName, uint64 InOffset, EPropertyType InType, uint32 InFlags = CPF_Default)
+	void AddProperty(const FString& InName, uint64 InOffset, EPropertyType InType,
+		uint32 InFlags = CPF_Default, const FPropertyMeta& InMeta = {})
 	{
-		Properties.Add({ InName, InType, InOffset, sizeof(T), nullptr, InFlags });
+		FProperty Property{ InName, InType, InOffset, sizeof(T), nullptr, InFlags };
+		Property.Meta = InMeta;
+		Property.bUnsignedInt = std::is_same_v<T, uint32>;
+		Properties.Add(std::move(Property));
 	}
 
 protected:
@@ -35,6 +41,7 @@ private:
 	{
 		constexpr EPropertyType Type = GetPropertyType<T>();
 		FProperty Property{ InName, Type, InOffset, sizeof(T), nullptr, InFlags };
+		Property.bUnsignedInt = std::is_same_v<T, uint32>;
 		if constexpr (std::is_pointer_v<T> &&
 			std::is_base_of_v<UObject, std::remove_pointer_t<T>>)
 		{

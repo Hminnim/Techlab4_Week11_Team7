@@ -37,7 +37,7 @@ struct FSpecifier
 	int Line = 0;
 };
 
-// meta 키 하나와 생성 코드에 들어갈 float 리터럴. 예: { "ClampMin", "0.0f" }
+// meta 키 하나와 생성 코드에 들어갈 숫자 리터럴. 예: { "ClampMin", "0.0" }
 struct FMetaValue
 {
 	std::string Key;

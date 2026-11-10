@@ -6,6 +6,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <iterator>
+#include <limits>
 
 namespace
 {
@@ -62,17 +63,17 @@ namespace
         return End == Text.c_str() + Text.size() && std::isfinite(OutValue);
     }
 
-    // 0.1 → "0.1f", 1 → "1.0f". float로 표현할 수 있는 가장 짧은 표기를 쓴다.
-    std::string MakeFloatLiteral(double Value)
+    // uint32 범위도 정확하게 보존하도록 double 리터럴을 생성한다.
+    std::string MakeNumberLiteral(double Value)
     {
         char Buffer[64];
-        const auto Result = std::to_chars(Buffer, Buffer + sizeof(Buffer), (float)Value);
+        const auto Result = std::to_chars(Buffer, Buffer + sizeof(Buffer), Value);
         std::string Text(Buffer, Result.ptr);
         if (Text.find_first_of(".eE") == std::string::npos)
         {
             Text += ".0";
         }
-        return Text + "f";
+        return Text;
     }
 }
 
@@ -781,6 +782,7 @@ void FHeaderParser::ResolveClassSpecifiers(const char* MacroName, const std::vec
 void FHeaderParser::ResolvePropertySpecifiers(const std::vector<FSpecifier>& Specifiers, FPropertyInfo& Property)
 {
     bool bHasEditSpecifier = false;
+    bool bHasMeta = false;
     for (const FSpecifier& Specifier : Specifiers)
     {
         const auto FlagIt = std::find_if(std::begin(PropertyFlagSpecifiers), std::end(PropertyFlagSpecifiers),
@@ -816,6 +818,12 @@ void FHeaderParser::ResolvePropertySpecifiers(const std::vector<FSpecifier>& Spe
         }
         else if (Specifier.Key == "meta")
         {
+            if (bHasMeta)
+            {
+                Error(Specifier.Line, "Use a single meta=(...) specifier per property.");
+                continue;
+            }
+            bHasMeta = true;
             ResolvePropertyMeta(Specifier, Property);
         }
         else
@@ -889,9 +897,10 @@ void FHeaderParser::ResolvePropertyMeta(const FSpecifier& MetaSpecifier, FProper
     }
 
     enum { ClampMin, ClampMax, UIMin, UIMax, Delta };
-    if (bIsSet[Delta] && Values[Delta] <= 0.0)
+    if (bIsSet[Delta] && (Values[Delta] <= 0.0 || Values[Delta] > std::numeric_limits<float>::max()
+        || static_cast<float>(Values[Delta]) == 0.0f))
     {
-        Error(MetaSpecifier.Line, "meta Delta must be greater than 0.");
+        Error(MetaSpecifier.Line, "meta Delta must be positive and representable as a float.");
     }
     if (bIsSet[ClampMin] && bIsSet[ClampMax] && Values[ClampMin] > Values[ClampMax])
     {
@@ -906,7 +915,7 @@ void FHeaderParser::ResolvePropertyMeta(const FSpecifier& MetaSpecifier, FProper
     {
         if (bIsSet[KeyIndex])
         {
-            Property.Meta.push_back({ PropertyMetaKeys[KeyIndex], MakeFloatLiteral(Values[KeyIndex]) });
+            Property.Meta.push_back({ PropertyMetaKeys[KeyIndex], MakeNumberLiteral(Values[KeyIndex]) });
         }
     }
 }

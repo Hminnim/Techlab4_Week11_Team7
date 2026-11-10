@@ -30,6 +30,8 @@
 #include "Editor/HitoriEd/EditorFileUtils.h"
 #include "Script/LuaScriptManager.h"
 
+#include <cmath>
+#include <limits>
 
 namespace
 {
@@ -705,10 +707,72 @@ namespace
 		}
 	}
 
+	template <typename T>
+	T GetNumericBound(const TOptional<double>& Bound, T Default, bool bMinimum)
+	{
+		if (!Bound.IsSet())
+			return Default;
+
+		double Value = Bound.GetValue();
+		if constexpr (std::is_integral_v<T>)
+			Value = bMinimum ? std::ceil(Value) : std::floor(Value);
+
+		return static_cast<T>(std::clamp(Value, static_cast<double>(std::numeric_limits<T>::lowest()),
+			static_cast<double>(std::numeric_limits<T>::max())));
+	}
+
+	template <typename T>
+	bool DrawNumericProperty(const char* Label, T* Values, int32 Count, ImGuiDataType DataType,
+		const FPropertyMeta& Meta, float DefaultSpeed)
+	{
+		const T ClampMin = GetNumericBound(Meta.ClampMin, std::numeric_limits<T>::lowest(), true);
+		const T ClampMax = GetNumericBound(Meta.ClampMax, std::numeric_limits<T>::max(), false);
+		const bool bInvalidRange = ClampMin > ClampMax;
+		T DragMin = GetNumericBound(Meta.UIMin, ClampMin, true);
+		T DragMax = GetNumericBound(Meta.UIMax, ClampMax, false);
+		if (!bInvalidRange)
+		{
+			DragMin = std::clamp(DragMin, ClampMin, ClampMax);
+			DragMax = std::clamp(DragMax, DragMin, ClampMax);
+		}
+
+		const T* Min = Meta.UIMin.IsSet() || Meta.ClampMin.IsSet() ? &DragMin : nullptr;
+		const T* Max = Meta.UIMax.IsSet() || Meta.ClampMax.IsSet() ? &DragMax : nullptr;
+		const float Speed = static_cast<float>(Meta.Delta.Get(DefaultSpeed));
+		const char* Format = std::is_floating_point_v<T> ? "%.3f" : nullptr;
+		ImGuiSliderFlags Flags = ImGuiSliderFlags_ClampZeroRange;
+		if (Meta.Delta.IsSet()) Flags |= ImGuiSliderFlags_NoRoundToFormat;
+
+		T Before[4];
+		std::copy_n(Values, Count, Before);
+		if (bInvalidRange) ImGui::BeginDisabled();
+		const bool bEdited = Count == 1
+			? ImGui::DragScalar(Label, DataType, Values, Speed, Min, Max, Format, Flags)
+			: ImGui::DragScalarN(Label, DataType, Values, Count, Speed, Min, Max, Format, Flags);
+		if (bInvalidRange) ImGui::EndDisabled();
+		if (!bEdited || bInvalidRange)
+			return false;
+
+		// 직접 입력은 UI 범위를 벗어날 수 있지만 변경된 값에는 실제 한계를 적용한다.
+		bool bChanged = false;
+		for (int32 Index = 0; Index < Count; ++Index)
+		{
+			if (Values[Index] != Before[Index])
+			{
+				Values[Index] = std::clamp(Values[Index], ClampMin, ClampMax);
+				bChanged |= Values[Index] != Before[Index];
+			}
+		}
+		return bChanged;
+	}
+
 	// Container는 이 필드를 직접 담고 있는 객체 또는 구조체의 주소다.
 	bool DrawPropertyValue(UObject* Object, void* Container, const FProperty& Property, ImFont* CustomFont,
 		const char* NameOverride = nullptr)
 	{
+		const bool bReadOnly = Property.HasAnyFlags(CPF_EditConst);
+		if (bReadOnly) ImGui::BeginDisabled();
+
 		void* ValuePtr = static_cast<char*>(Container) + Property.Offset;
 		const char* DisplayName = NameOverride ? NameOverride : Property.Name.c_str();
 		const FString Label = FString("##") + DisplayName;
@@ -738,10 +802,13 @@ namespace
 		switch (Property.Type)
 		{
 		case EPropertyType::Float:
-			bChanged = ImGui::DragFloat(Label.c_str(), static_cast<float*>(ValuePtr), 0.1f);
+			bChanged = DrawNumericProperty(Label.c_str(), static_cast<float*>(ValuePtr), 1, ImGuiDataType_Float, Property.Meta, 0.1f);
 			break;
 		case EPropertyType::Int:
-			bChanged = ImGui::DragInt(Label.c_str(), static_cast<int*>(ValuePtr), 1.0f);
+			if (Property.bUnsignedInt)
+				bChanged = DrawNumericProperty(Label.c_str(), static_cast<uint32*>(ValuePtr), 1, ImGuiDataType_U32, Property.Meta, 1.0f);
+			else
+				bChanged = DrawNumericProperty(Label.c_str(), static_cast<int32*>(ValuePtr), 1, ImGuiDataType_S32, Property.Meta, 1.0f);
 			break;
 		case EPropertyType::Bool:
 			bChanged = ImGui::Checkbox(Label.c_str(), static_cast<bool*>(ValuePtr));
@@ -749,7 +816,7 @@ namespace
 		case EPropertyType::Vector:
 		{
 			FVector* Value = static_cast<FVector*>(ValuePtr);
-			bChanged = ImGui::DragFloat3(Label.c_str(), Value->V, 0.1f);
+			bChanged = DrawNumericProperty(Label.c_str(), Value->V, 3, ImGuiDataType_Float, Property.Meta, 0.1f);
 			break;
 		}
 		case EPropertyType::Rotator:
@@ -757,7 +824,7 @@ namespace
 			FRotator* Value = static_cast<FRotator*>(ValuePtr);
 			// Transform의 Rotation과 같은 X/Y/Z 축 순서로 보여준다.
 			float Euler[3] = { Value->Roll, Value->Pitch, Value->Yaw };
-			if (ImGui::DragFloat3(Label.c_str(), Euler, 0.1f))
+			if (DrawNumericProperty(Label.c_str(), Euler, 3, ImGuiDataType_Float, Property.Meta, 0.1f))
 			{
 				Value->Roll = Euler[0];
 				Value->Pitch = Euler[1];
@@ -770,7 +837,7 @@ namespace
 		case EPropertyType::Vector4:
 		{
 			FVector4* Value = static_cast<FVector4*>(ValuePtr);
-			bChanged = ImGui::DragFloat4(Label.c_str(), &Value->X, 0.1f);
+			bChanged = DrawNumericProperty(Label.c_str(), &Value->X, 4, ImGuiDataType_Float, Property.Meta, 0.1f);
 			break;
 		}
 
@@ -873,10 +940,7 @@ namespace
 					continue;
 
 				ImGui::PushID(Member.Name.c_str());
-				const bool bReadOnly = Member.HasAnyFlags(CPF_EditConst);
-				if (bReadOnly) ImGui::BeginDisabled();
 				bChanged |= DrawPropertyValue(Object, ValuePtr, Member, CustomFont);
-				if (bReadOnly) ImGui::EndDisabled();
 				ImGui::PopID();
 			}
 			ImGui::Unindent();
@@ -940,6 +1004,7 @@ namespace
 			break;
 		}
 
+		if (bReadOnly) ImGui::EndDisabled();
 		return bChanged;
 	}
 
@@ -995,10 +1060,7 @@ namespace
 						continue;
 					}
 
-					const bool bReadOnly = Property.HasAnyFlags(CPF_EditConst);
-					if (bReadOnly) ImGui::BeginDisabled();
 					DrawProperty(Object, Property, CustomFont);
-					if (bReadOnly) ImGui::EndDisabled();
 				}
 			}
 			ImGui::PopID();
