@@ -86,4 +86,7 @@ private:
 	// Root Motion 을 추출할 트랙. "root" 트랙이 있을 시 해당 트랙, 없으면 가장 위 0번 트랙.
 	const FBoneAnimationTrack* FindRootMotionTrack() const;
 	FVector SampleTrackLocation(const FBoneAnimationTrack& Track, float Time) const;
+	
+	// GetBonePose에서 트랙별 본 인덱스 캐싱에 활용
+	mutable TArray<int32> TrackBoneIndexHints;
 };
