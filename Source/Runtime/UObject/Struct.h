@@ -28,6 +28,8 @@ protected:
 	virtual const UStruct* GetSuperStruct() const { return nullptr; }
 
 private:
+	friend class UFunction;
+
 	template <typename T>
 	static FProperty MakeProperty(const FString& InName, uint64 InOffset, uint32 InFlags)
 	{

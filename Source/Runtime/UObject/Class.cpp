@@ -15,6 +15,19 @@ bool UClass::IsChildOf(const UClass* BaseClass) const
 	return false;
 }
 
+const UFunction* UClass::FindFunction(const FString& InName) const
+{
+	for (const UClass* Class = this; Class; Class = Class->Super)
+	{
+		for (const UFunction& Function : Class->Functions)
+		{
+			if (Function.GetName() == InName)
+				return &Function;
+		}
+	}
+	return nullptr;
+}
+
 UObject* UClass::GetDefaultObject() 
 {
 	if (!DefaultObject)
