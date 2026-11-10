@@ -29,7 +29,7 @@ void FAnimNode_BlendSpacePlayer::Update(const FAnimationUpdateContext& Context)
         }
         
         for(FBlendSampleData& Data : BlendSampleDataCache)
-        {
+        { 
             const FBlendSample& Sample = BlendSpace->GetBlendSample(Data.SampleDataIndex);
             Data.Time = InternalTimeAccumulator * Sample.GetSamplePlayLength();
         }

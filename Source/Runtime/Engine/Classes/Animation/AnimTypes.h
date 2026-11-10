@@ -15,6 +15,16 @@ struct FAnimNotifyEvent
 	float TriggerTime = 0.0f;
 	float Duration = 0.0f; // 0 이면 한 번, 0 보다 크면 구간(NotifyState)
 	FName NotifyName;
+
+	float GetTriggerTime() const
+	{
+		return TriggerTime;
+	}
+	 
+	float GetEndTriggerTime() const
+	{
+		return (Duration > 0.0f) ? (TriggerTime + Duration) : TriggerTime;
+	}
 };
 
 struct FRawAnimSequenceTrack

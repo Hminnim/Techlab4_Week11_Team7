@@ -83,3 +83,39 @@ void FAnimationRuntime::BlendPosesTogether(const TArray<FCompactPose>& SourcePos
 		ResultPose[BoneIndex] = TempAtoms[BoneIndex].ToTransform();
 	}
 }
+
+ETypeAdvanceAnim FAnimationRuntime::AdvanceTime(const bool bAllowLooping, const float MoveDelta, float& InOutTime, const float EndTIme)
+{
+	float NewTime = InOutTime + MoveDelta;
+
+	if(NewTime < 0.0f || NewTime >EndTIme)
+	{
+		if(bAllowLooping)
+		{
+			if(EndTIme != 0.0f)
+			{
+				NewTime = fmod(NewTime, EndTIme);
+
+				if(NewTime < 0.0f)
+				{
+					NewTime += EndTIme;
+				}
+			}
+			else
+			{
+				NewTime = 0.0f;
+			}
+
+			InOutTime = NewTime;
+			return ETypeAdvanceAnim::Looped;
+		}
+		else
+		{
+			InOutTime = FMath::Clamp(NewTime, 0.0f, EndTIme);
+			return ETypeAdvanceAnim::Finished;
+		}
+	}
+	
+	InOutTime = NewTime;
+	return ETypeAdvanceAnim::Default;
+}

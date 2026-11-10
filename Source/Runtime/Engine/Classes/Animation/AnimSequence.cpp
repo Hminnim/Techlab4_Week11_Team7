@@ -1,6 +1,7 @@
 #include "EnginePCH.h"
 #include "AnimSequence.h"
 #include "BonePose.h"
+#include "AnimationRuntime.h"
 
 namespace
 {
@@ -103,6 +104,96 @@ void UAnimSequenceBase::OnDataModelDestroyed(const UAnimDataModel* Model)
 {
 	if (DataModel == Model)
 		DataModel = nullptr;
+}
+
+void UAnimSequenceBase::GetAnimNotifies(const float& StartTime, const float& DeltaTime, FAnimNotifyContext& NotifyContext) const
+{
+	if(Notifies.Num() == 0 || GetPlayLength() <= 0.0f)
+	{
+		return;
+	}
+
+	bool const bPlayingBackwards = (DeltaTime < 0.f);
+	float PreviousPosition = StartTime;
+	float CurrentPosition = StartTime;
+	float DesiredDeltaMove = DeltaTime;
+	const float PlayLength = GetPlayLength();
+
+	int32 MaxLoopCount = 2;
+	if(PlayLength > 0.0f && std::abs(DeltaTime) > PlayLength)
+	{
+		MaxLoopCount = FMath::Clamp(int32(DesiredDeltaMove / PlayLength) + 2, 2, 1000);
+	}
+
+	for(int32 i = 0; i < MaxLoopCount; ++i)
+	{
+		const ETypeAdvanceAnim AdvanceType = FAnimationRuntime::AdvanceTime(false, DesiredDeltaMove, CurrentPosition, PlayLength);
+
+		GetAnimNotifiesFromDeltaPosition(PreviousPosition, CurrentPosition, NotifyContext);
+
+		if(AdvanceType == ETypeAdvanceAnim::Finished && NotifyContext.bLooping)
+		{
+			const float ActualDeltaMove = (CurrentPosition - PreviousPosition);
+			DesiredDeltaMove -= ActualDeltaMove;
+			PreviousPosition = bPlayingBackwards ? GetPlayLength() : 0.f;
+			CurrentPosition = PreviousPosition;
+		}
+		else
+		{
+			break;
+		}
+	}
+}
+
+void UAnimSequenceBase::GetAnimNotifiesFromDeltaPosition(const float& PreviousPosition, const float& CurrentPosition, FAnimNotifyContext& NotifyContext) const
+{
+	if(Notifies.Num() == 0)
+	{
+		return;
+	}
+
+	bool const bPlayingBackwards = (CurrentPosition < PreviousPosition);
+
+	if(bPlayingBackwards)
+	{
+		for(int32 NotifyIndex = 0; NotifyIndex < Notifies.Num(); ++NotifyIndex)
+		{
+			const FAnimNotifyEvent& AnimNotifyEvent = Notifies[NotifyIndex];
+			const float NotifyStartTime = AnimNotifyEvent.GetTriggerTime();
+			const float NotifyEndTime = AnimNotifyEvent.GetEndTriggerTime();
+
+			if((NotifyStartTime < PreviousPosition) && (NotifyEndTime >= CurrentPosition))
+			{
+				NotifyContext.ActiveNotifies.Emplace(&AnimNotifyEvent, this);
+
+				const bool bHasFinished = CurrentPosition <= FMath::Max(NotifyStartTime, 0.0f);
+				if(bHasFinished)
+				{
+					NotifyContext.ActiveNotifies.Top().bHasFinished = true;
+				}
+			}
+		}
+	}
+	else
+	{
+		for(int32 NotifyIndex = 0; NotifyIndex < Notifies.Num(); ++NotifyIndex)
+		{
+			const FAnimNotifyEvent& AnimNotifyEvent = Notifies[NotifyIndex];
+			const float NotifyStartTime = AnimNotifyEvent.GetTriggerTime();
+			const float NotifyEndTime = AnimNotifyEvent.GetEndTriggerTime();
+
+			if((NotifyStartTime <= CurrentPosition) && (NotifyEndTime > PreviousPosition))
+			{
+				NotifyContext.ActiveNotifies.Emplace(&AnimNotifyEvent, this);
+
+				const bool bHasFinished = CurrentPosition >= NotifyEndTime;
+				if(bHasFinished)
+				{
+					NotifyContext.ActiveNotifies.Top().bHasFinished = true;
+				}
+			}
+		}
+	}
 }
 
 void UAnimSequence::GetAnimationPose(FCompactPose& OutPose, const FAnimExtractContext& ExtractionContext) const
