@@ -37,7 +37,7 @@ struct FSpecifier
 	int Line = 0;
 };
 
-// meta 키 하나와 생성 코드에 들어갈 float 리터럴. 예: { "ClampMin", "0.0f" }
+// meta 키 하나와 생성 코드에 들어갈 숫자 리터럴. 예: { "ClampMin", "0.0" }
 struct FMetaValue
 {
 	std::string Key;
@@ -64,6 +64,7 @@ struct FFunctionInfo
 
 struct FClassInfo
 {
+	bool bIsStruct = false;
 	std::string Name;
 	std::string SuperName;
 	int Line = 0;
@@ -95,7 +96,7 @@ struct FHeaderInfo
 	std::vector<FClassInfo> Classes;
 	std::vector<FEnumInfo> Enums;
 
-	// UCLASS / UENUM 중 파일에서 처음 나오는 줄. .generated.h는 이보다 앞에 include해야 한다.
+	// 리플렉션 선언이 처음 나오는 줄. .generated.h는 이보다 앞에 include해야 한다.
 	int GetFirstDeclarationLine() const
 	{
 		int Line = 0;

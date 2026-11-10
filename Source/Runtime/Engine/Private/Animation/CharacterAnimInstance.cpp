@@ -31,7 +31,7 @@ namespace
 }
 
 bool UCharacterAnimInstance::ConfigureAnimations(UAnimSequence* Idle, UAnimSequence* Attack, UAnimSequence* Hit,
-	const FCharacterJumpClips& Jump)
+	const FCharacterJumpClips& Jump, TUniquePtr<FAnimNode_BlendSpacePlayer> BlendSpace)
 {
 	if (RootNode || !IsPlayableClip(Idle) || !IsPlayableClip(Attack) || !IsPlayableClip(Hit))
 	{
@@ -42,8 +42,13 @@ bool UCharacterAnimInstance::ConfigureAnimations(UAnimSequence* Idle, UAnimSeque
 	auto HitPlayer = MakeSequencePlayer(Hit, false);
 	const auto IsAttackFinished = MakeClipFinishedRule(AttackPlayer.get());
 	const auto IsHitFinished = MakeClipFinishedRule(HitPlayer.get());
-	return ConfigureStateMachine(MakeSequencePlayer(Idle, true), std::move(AttackPlayer), std::move(HitPlayer),
-		IsAttackFinished, IsHitFinished, Jump);
+	auto* BlendSpacePlayer = BlendSpace.get();
+	TUniquePtr<FAnimNode_Base> LocomotionPlayer = std::move(BlendSpace);
+	if (!LocomotionPlayer) LocomotionPlayer = MakeSequencePlayer(Idle, true);
+	if (!ConfigureStateMachine(std::move(LocomotionPlayer), std::move(AttackPlayer), std::move(HitPlayer),
+		IsAttackFinished, IsHitFinished, Jump)) return false;
+	LocomotionBlendSpace = BlendSpacePlayer;
+	return true;
 }
 
 bool UCharacterAnimInstance::ConfigureGraph(FAnimNode_StateMachine&& Graph)
@@ -159,6 +164,8 @@ void UCharacterAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 	{
 		return;
 	}
+
+	if (LocomotionBlendSpace) LocomotionBlendSpace->X = Speed;
 
 	// 이 호출 다음에 RootNode->Update가 실행된다. 입력은 그 프레임에만 유효하다.
 	bAttackRequested = bPendingAttack;
