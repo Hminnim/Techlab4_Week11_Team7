@@ -188,19 +188,19 @@ void FOutputLogPanel::ExecCommand(const FString& CommandLine)
 	std::istringstream CsmInput(CommandLine);
 	FString Command, Argument, Value, Extra;
 	CsmInput >> Command;
-	if (EqualsIgnoreCase(Command, "usegpuskinning") || EqualsIgnoreCase(Command, "r.Skinning.GPU"))
+	if (EqualsIgnoreCase(Command, "gpuskinning") || EqualsIgnoreCase(Command, "r.Skinning.GPU"))
 	{
 		CsmInput >> Argument;
 		if ((CsmInput >> Extra) ||
 			(!Argument.empty() && Argument != "0" && Argument != "1"))
 		{
-			FLog::Log(ELogVerbosity::Info, "Usage: usegpuskinning [0|1]");
+			FLog::Log(ELogVerbosity::Info, "Usage: gpuskinning [0|1]");
 		}
 		else
 		{
 			if (!Argument.empty())
 				USkeletalMeshComponent::SetGPUSkinningEnabled(Argument == "1");
-			FLog::Log(ELogVerbosity::Info, "Skinning (global): {}",
+			FLog::Log(ELogVerbosity::Info, "Skinning : {}",
 				USkeletalMeshComponent::IsGPUSkinningEnabled() ? "GPU" : "CPU");
 		}
 		ScrollToBottom = true;
