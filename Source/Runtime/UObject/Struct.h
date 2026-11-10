@@ -14,14 +14,20 @@ public:
 	template <typename T>
 	void AddProperty(const FString& InName, uint64 InOffset, uint32 InFlags = CPF_Default)
 	{
-		UClass* ObjClass = nullptr;
+		constexpr EPropertyType Type = GetPropertyType<T>();
+		FProperty Property{ InName, Type, InOffset, sizeof(T), nullptr, InFlags };
 		if constexpr (std::is_pointer_v<T> &&
 			std::is_base_of_v<UObject, std::remove_pointer_t<T>>)
 		{
-			ObjClass = std::remove_pointer_t<T>::StaticClass();
+			Property.Class = std::remove_pointer_t<T>::StaticClass();
+		}
+		else if constexpr (Type == EPropertyType::Struct)
+		{
+			// 구조체의 필드가 이 타입을 참조할 수 있으므로 조회할 때 등록한다.
+			Property.ResolveScriptStruct = &T::StaticStruct;
 		}
 
-		Properties.Add({ InName, GetPropertyType<T>(), InOffset, sizeof(T), ObjClass, InFlags });
+		Properties.Add(std::move(Property));
 	}
 
 	template <typename T>

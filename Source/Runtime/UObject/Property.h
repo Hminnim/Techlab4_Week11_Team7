@@ -8,8 +8,11 @@
 
 class UMaterial;
 class UFont;
+class UScriptStruct;
 
-enum class EPropertyType { Unknown, Float, Int, String, Bool, Vector, Vector4, Color, LinearColor, Rotator, Transform, Object};
+using FScriptStructAccessor = UScriptStruct* (*)();
+
+enum class EPropertyType { Unknown, Float, Int, String, Bool, Vector, Vector4, Color, LinearColor, Rotator, Transform, Object, Struct };
 
 template <typename T>
 constexpr EPropertyType GetPropertyType()
@@ -18,6 +21,10 @@ constexpr EPropertyType GetPropertyType()
         std::is_base_of_v<UObject, std::remove_pointer_t<T>>)
     {
         return EPropertyType::Object;
+    }
+    else if constexpr (requires { static_cast<FScriptStructAccessor>(&T::StaticStruct); })
+    {
+        return EPropertyType::Struct;
     }
     else
     {
@@ -71,6 +78,11 @@ struct FProperty
     size_t Size;
     UClass* Class = nullptr;
     uint32 Flags = CPF_Default;
+    FScriptStructAccessor ResolveScriptStruct = nullptr;
 
     bool HasAnyFlags(uint32 InFlags) const { return (Flags & InFlags) != 0; }
+    const UScriptStruct* GetScriptStruct() const
+    {
+        return ResolveScriptStruct ? ResolveScriptStruct() : nullptr;
+    }
 };
