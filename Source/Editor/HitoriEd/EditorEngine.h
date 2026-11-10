@@ -51,6 +51,7 @@
 #include "EditorEngine.generated.h"
 
 class FSkeletalMeshEditorPanel;
+class FAnimationSequenceEditorPanel;
 
 inline constexpr int32 InvalidViewIndex = -1;
 
@@ -147,6 +148,7 @@ private:
 	bool IsSimulatingInEditor() const;
 
 	void RenderSkeletalMeshPreview();
+	void RenderAnimationSequencePreview();
 
 	void SetSelectedComponent(USceneComponent* Component)
 	{
@@ -194,6 +196,7 @@ private:
 	FContentDrawerPanel* ContentDrawerPanel = nullptr;
 	FUIEditorPanel* UIEditorPanel = nullptr;
 	FSkeletalMeshEditorPanel* SkeletalMeshEditorPanel = nullptr;
+	FAnimationSequenceEditorPanel* AnimationSequenceEditorPanel = nullptr;
 
 	UWorld* EditorWorld = nullptr;
 	UWorld* PlayWorld = nullptr;

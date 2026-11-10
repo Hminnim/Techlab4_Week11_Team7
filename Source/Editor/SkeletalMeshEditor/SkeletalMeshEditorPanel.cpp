@@ -388,7 +388,7 @@ void FSkeletalMeshEditorPanel::DrawViewport()
 	{
 		const ImVec2 Min = ImGui::GetCursorScreenPos();
 		const ImVec2 Size(static_cast<float>(Width), static_cast<float>(Height));
-		ImGui::InvisibleButton("##PreviewViewport", Size, ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight);
+		ImGui::InvisibleButton("##AnimationPreviewViewport", Size, ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight);
 		ImGui::GetWindowDrawList()->AddImage(ViewportClient.GetColorTarget()->GetSRV(), Min, ImVec2(Min.x + Size.x, Min.y + Size.y));
 		TickCameraInput();
 		TickBoneGizmo(Min);

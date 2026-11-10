@@ -356,11 +356,13 @@ bool UEditorEngine::Init()
 	SettingsPanel = EditorUI->AddEditorPanel<FSettingsPanel>();
 	SequencerPanel = EditorUI->AddEditorPanel<FSequencerPanel>();
 	OutputLogPanel->SetEditorSettings(&SettingsPanel->GetMutableSettings());
-
+	
 	UIEditorPanel = EditorUI->AddEditorPanel<FUIEditorPanel>();
-	EditorUI->AddEditorPanel<FAnimationSequenceEditorPanel>();
 	SkeletalMeshEditorPanel = EditorUI->AddEditorPanel<FSkeletalMeshEditorPanel>();
 	SkeletalMeshEditorPanel->SetEditorSettings(&SettingsPanel->GetMutableSettings());
+	AnimationSequenceEditorPanel = EditorUI->AddEditorPanel<FAnimationSequenceEditorPanel>();
+	AnimationSequenceEditorPanel->SetEditorSettings(&SettingsPanel->GetMutableSettings());
+
 
 	ContentDrawerPanel->SetCreateWidgetCallback([this](const FString& Path) { UIEditorPanel->NewAsset(Path); });
 	ContentDrawerPanel->SetOpenWidgetCallback([this](const FString& Path) { UIEditorPanel->OpenAsset(Path); });
@@ -967,6 +969,7 @@ void UEditorEngine::RenderViewports()
 
 	UIEditorPanel->RenderPreview(*UIRenderer);
 	RenderSkeletalMeshPreview();
+	RenderAnimationSequencePreview();
 }
 
 void UEditorEngine::UpdatePIEViewCamera()
@@ -1074,6 +1077,61 @@ void UEditorEngine::RenderSkeletalMeshPreview()
 					};
 			}
 			
+			Overlays.bClearEditorDepth = true;
+		});
+}
+
+// 애니메이션 시퀀스 에디터의 프리뷰 월드를 렌더 타깃에 그립니다.
+void UEditorEngine::RenderAnimationSequencePreview()
+{
+	if (!AnimationSequenceEditorPanel || !AnimationSequenceEditorPanel->IsOpen()) return;
+
+	UWorld* PreviewWorld = AnimationSequenceEditorPanel->GetPreviewWorld();
+	FEditorViewportClient* PreviewClient = AnimationSequenceEditorPanel->GetViewportClient();
+	if (!PreviewWorld ||
+		!PreviewClient ||
+		PreviewClient->GetWidth() == 0 ||
+		PreviewClient->GetHeight() == 0 ||
+		!PreviewClient->GetColorTarget()) return;
+
+	FSceneRenderOptions Options;
+	BuildSceneRenderOptions(PreviewClient, false, Options);
+
+	const FSceneView SceneView = PreviewClient->CalcSceneView();
+
+	FSceneRenderer SceneRenderer(PreviewWorld, SceneView, PreviewClient->GetRenderData());
+	SceneRenderer.InitViews(Renderer, Options);
+
+	FSceneViewTargets& Targets = PreviewClient->GetViewTargets();
+	RenderScene(Targets, SceneView, SceneRenderer, PreviewWorld, Options,
+		[this, &SceneView, &Targets](FSceneOverlayCallbacks& Overlays)
+		{
+			if (AnimationSequenceEditorPanel->IsRenderGrid())
+			{
+				const FViewportSettings ViewportSettings
+				{
+					.StartX = 0,
+					.StartY = 0,
+					.Width = Targets.SceneColor->GetWidth(),
+					.Height = Targets.SceneColor->GetHeight(),
+					.MinDepth = 0.0f,
+					.MaxDepth = 1.0f,
+				};
+
+				Overlays.EditorGrid = [this, &SceneView, ViewportSettings]
+					{
+						GridRenderer->OnRenderBatchGrid(
+							SceneView.ViewProjectionMatrix,
+							SceneView.ViewLocation,
+							SceneView.ViewForward,
+							EGridPlane::XY,
+							static_cast<float>(SettingsPanel->GetSettings().GridSpacing),
+							SceneView.bIsPerspective,
+							ViewportSettings);
+					};
+			}
+
+
 			Overlays.bClearEditorDepth = true;
 		});
 }
@@ -1624,6 +1682,7 @@ void UEditorEngine::PreExit()
 	// 시퀀서는 에디터 월드 액터를 가리키므로 월드보다 먼저 정리한다
 	if (SequencerPanel) SequencerPanel->Shutdown();
 	if (SkeletalMeshEditorPanel) DestroyWorld(SkeletalMeshEditorPanel->ReleasePreviewWorld());
+	if (AnimationSequenceEditorPanel) DestroyWorld(AnimationSequenceEditorPanel->ReleasePreviewWorld());
 	EditorWorld->ClearWorld();
 	// PIE 창이 열린 채 종료하면 Device가 살아 있을 때 Swapchain과 타깃을 먼저 정리한다.
 	DestroyPIEWindow();
