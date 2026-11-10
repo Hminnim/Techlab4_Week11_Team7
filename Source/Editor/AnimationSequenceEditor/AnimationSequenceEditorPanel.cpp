@@ -56,6 +56,34 @@ bool FAnimationSequenceEditorPanel::Init()
 
 void FAnimationSequenceEditorPanel::Tick(float DeltaTime)
 {
+	if (!IsOpen()) bPlaying = false;
+	if (bPlaying && EditSequence && std::isfinite(DeltaTime) && DeltaTime > 0.0f)
+	{
+		const float Length = EditSequence->GetPlayLength();
+		if (!std::isfinite(Length) || Length <= 0.0f)
+		{
+			bPlaying = false;
+		}
+		else
+		{
+			double NewTime = static_cast<double>(CurrentTime) + static_cast<double>(DeltaTime) * PlayRate;
+			if (NewTime >= Length)
+			{
+				if (bLooping)
+				{
+					// 끝을 초과한 시간까지 유지하며 다음 반복으로 넘어간다.
+					NewTime = std::fmod(NewTime, static_cast<double>(Length));
+				}
+				else
+				{
+					NewTime = Length;
+					bPlaying = false;
+				}
+			}
+			SetPreviewTime(static_cast<float>(NewTime));
+		}
+	}
+
 	if (PreviewWorld)
 	{
 		PreviewWorld->GetScene().UpdateAllTransforms();
@@ -77,18 +105,14 @@ void FAnimationSequenceEditorPanel::OnRender()
 	{
 		ImGui::Checkbox("Grid", &bRenderGrid);
 		DrawSequenceInfo();
-		if (EditSequence)
-		{
-			float EditedTime = CurrentTime;
-			if (ImGui::InputFloat("Time (sec)", &EditedTime, 0.01f, 0.1f, "%.3f"))
-				SetPreviewTime(EditedTime);
-		}
+		DrawPlaybackControls();
 		ImGui::Separator();
 		DrawViewport();
 	}
 
 	ImGui::End();
 	SetOpen(bPanelOpen);
+	if (!bPanelOpen) bPlaying = false;
 }
 
 // 콘텐츠 브라우저에서 선택한 클립과 같은 FBX의 메시를 연결한다.
@@ -111,6 +135,7 @@ bool FAnimationSequenceEditorPanel::OpenAsset(UAnimSequence* InSequence, USkelet
 	if (PreviewMeshComponent->GetSkeletalMesh() != InSkeletalMesh) return false;
 	PreviewMeshComponent->ResetToReferencePose();
 	EditSequence = InSequence;
+	bPlaying = false;
 	SetPreviewTime(0.0f);
 
 	const FBox Bounds = PreviewMeshComponent->CalcBounds();
@@ -119,6 +144,61 @@ bool FAnimationSequenceEditorPanel::OpenAsset(UAnimSequence* InSequence, USkelet
 	SetOpen(true);
 	bRequestFocus = true;
 	return true;
+}
+
+void FAnimationSequenceEditorPanel::DrawPlaybackControls()
+{
+	if (!EditSequence) return;
+	const float Length = EditSequence->GetPlayLength();
+	if (!std::isfinite(Length) || Length < 0.0f) return;
+
+	if (ImGui::Button("Go To Start"))
+	{
+		bPlaying = false;
+		SetPreviewTime(0.0f);
+	}
+	ImGui::SameLine();
+	if (ImGui::Button("Previous Frame")) StepFrame(-1);
+	ImGui::SameLine();
+	ImGui::BeginDisabled(Length <= 0.0f);
+	if (ImGui::Button(bPlaying ? "Pause" : "Play")) TogglePlayback();
+	ImGui::EndDisabled();
+	ImGui::SameLine();
+	if (ImGui::Button("Next Frame")) StepFrame(+1);
+
+	ImGui::Checkbox("Loop", &bLooping);
+	ImGui::SliderFloat("Speed", &PlayRate, 0.1f, 4.0f, "%.2fx", ImGuiSliderFlags_AlwaysClamp);
+
+	float EditedTime = CurrentTime;
+	const bool bInputChanged = ImGui::InputFloat("Time (sec)", &EditedTime, 0.01f, 0.1f, "%.3f");
+	if (ImGui::IsItemActivated() || bInputChanged) bPlaying = false;
+	if (bInputChanged) SetPreviewTime(EditedTime);
+
+	EditedTime = CurrentTime;
+	const bool bSliderChanged = ImGui::SliderFloat("Position", &EditedTime, 0.0f, Length, "%.3f sec", ImGuiSliderFlags_AlwaysClamp);
+	if (ImGui::IsItemActivated() || bSliderChanged) bPlaying = false;
+	if (bSliderChanged) SetPreviewTime(EditedTime);
+}
+
+void FAnimationSequenceEditorPanel::TogglePlayback()
+{
+	if (!EditSequence) return;
+	const float Length = EditSequence->GetPlayLength();
+	if (!std::isfinite(Length) || Length <= 0.0f) return;
+
+	if (!bPlaying && CurrentTime >= Length) SetPreviewTime(0.0f);
+	bPlaying = !bPlaying;
+}
+
+void FAnimationSequenceEditorPanel::StepFrame(int32 Direction)
+{
+	if (!EditSequence) return;
+	bPlaying = false;
+	const double FPS = EditSequence->GetSamplingFrameRate().AsDecimal();
+	if (!std::isfinite(FPS) || FPS <= 0.0) return;
+
+	const double CurrentFrame = std::round(static_cast<double>(CurrentTime) * FPS);
+	SetPreviewTime(static_cast<float>((CurrentFrame + Direction) / FPS));
 }
 
 void FAnimationSequenceEditorPanel::SetPreviewTime(float NewTime)
@@ -173,6 +253,7 @@ UWorld* FAnimationSequenceEditorPanel::ReleasePreviewWorld()
 {
 	// 월드를 삭제하기 전에 관찰 참조부터 해제
 	ViewportClient.SetWorld(nullptr);
+	bPlaying = false;
 	EditSequence = nullptr;
 	CurrentTime = 0.0f;
 	PreviewMeshComponent = nullptr;

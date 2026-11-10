@@ -35,6 +35,9 @@ private:
 	void TickCameraInput();
 
 	void DrawSequenceInfo();
+	void DrawPlaybackControls();
+	void TogglePlayback();
+	void StepFrame(int32 Direction);
 	void SetPreviewTime(float NewTime);
 	void EvaluatePreviewPose();
 
@@ -49,6 +52,9 @@ private:
 	// AssetManager가 관리하는 에셋을 참조
 	UAnimSequence* EditSequence = nullptr;
 	float CurrentTime = 0.0f;
+	bool bPlaying = false;
+	bool bLooping = true;
+	float PlayRate = 1.0f;
 
 	FEditorViewportClient ViewportClient;
 };
