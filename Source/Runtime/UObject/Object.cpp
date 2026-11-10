@@ -68,11 +68,11 @@ bool UObject::IsA(const UClass* Class) const
 	return ThisClass && ThisClass->IsChildOf(Class);
 }
 
-void UObject::Serialize(json& Handle, bool bIsLoading)
+namespace
 {
-	for (UClass* c = GetClass(); c; c = c->Super)
+	void SerializeJsonFields(json& Handle, void* Container, const TArray<FProperty>& Fields, bool bIsLoading)
 	{
-		for (FProperty Property : c->GetProperties())
+		for (const FProperty& Property : Fields)
 		{
 			if (Property.HasAnyFlags(CPF_Transient))
 				continue;
@@ -80,7 +80,7 @@ void UObject::Serialize(json& Handle, bool bIsLoading)
 			if (bIsLoading && !Handle.contains(Property.Name))
 				continue;
 
-			void* Ptr = reinterpret_cast<uint8*>(this) + Property.Offset;
+			void* Ptr = static_cast<uint8*>(Container) + Property.Offset;
 
 			switch (Property.Type)
 			{
@@ -148,6 +148,14 @@ void UObject::Serialize(json& Handle, bool bIsLoading)
 				else Handle[Property.Name] = Value;
 				break;
 			}
+			case EPropertyType::Struct:
+			{
+				json& Value = Handle[Property.Name];
+				if (!bIsLoading) Value = json::object();
+				if (Value.is_object())
+					SerializeJsonFields(Value, Ptr, Property.GetScriptStruct()->GetProperties(), bIsLoading);
+				break;
+			}
 			case EPropertyType::Object:
 			{
 				UObject*& Value = *static_cast<UObject**>(Ptr);
@@ -198,35 +206,15 @@ void UObject::Serialize(json& Handle, bool bIsLoading)
 			}
 		}
 	}
-}
 
-void UObject::Serialize(FArchive& Ar)
-{
-	FBinaryArchiveFormatter Formatter(Ar);
-	FStructuredArchive StructuredAr(Formatter);
-	Serialize(StructuredAr.Open().EnterRecord());
-	StructuredAr.Close();
-}
-
-void UObject::Serialize(FStructuredArchive::FRecord Record)
-{
-	SerializeScriptProperties(Record.EnterField("Properties"));
-}
-
-void UObject::SerializeScriptProperties(FStructuredArchive::FSlot Slot)
-{
-	FStructuredArchive::FRecord Properties = Slot.EnterRecord();
-
-	const bool bIsLoading = Properties.GetUnderlyingArchive().IsLoading();
-
-	for (UClass* c = GetClass(); c; c = c->Super)
+	void SerializeArchiveFields(FStructuredArchive::FRecord Record, void* Container, const TArray<FProperty>& Fields, bool bIsLoading)
 	{
-		for (const FProperty& Property : c->GetProperties())
+		for (const FProperty& Property : Fields)
 		{
-			TOptional<FStructuredArchive::FSlot> Slot = Properties.TryEnterField(Property.Name.c_str(), true);
+			TOptional<FStructuredArchive::FSlot> Slot = Record.TryEnterField(Property.Name.c_str(), true);
 			if (!Slot.IsSet()) continue;
 
-			void* Ptr = reinterpret_cast<uint8*>(this) + Property.Offset;
+			void* Ptr = static_cast<uint8*>(Container) + Property.Offset;
 			FStructuredArchive::FSlot Value = Slot.GetValue();
 
 			switch (Property.Type)
@@ -241,6 +229,9 @@ void UObject::SerializeScriptProperties(FStructuredArchive::FSlot Slot)
 			case EPropertyType::Color:     Value << *static_cast<FColor*>(Ptr); break;
 			case EPropertyType::Rotator:   Value << *static_cast<FRotator*>(Ptr); break;
 			case EPropertyType::Transform: Value << *static_cast<FTransform*>(Ptr); break;
+			case EPropertyType::Struct:
+				SerializeArchiveFields(Value.EnterRecord(), Ptr, Property.GetScriptStruct()->GetProperties(), bIsLoading);
+				break;
 			case EPropertyType::Object:
 			{
 				if(Property.Class == UMaterial::StaticClass())
@@ -274,6 +265,33 @@ void UObject::SerializeScriptProperties(FStructuredArchive::FSlot Slot)
 			}
 		}
 	}
+}
+
+void UObject::Serialize(json& Handle, bool bIsLoading)
+{
+	for (UClass* Class = GetClass(); Class; Class = Class->Super)
+		SerializeJsonFields(Handle, this, Class->GetProperties(), bIsLoading);
+}
+
+void UObject::Serialize(FArchive& Ar)
+{
+	FBinaryArchiveFormatter Formatter(Ar);
+	FStructuredArchive StructuredAr(Formatter);
+	Serialize(StructuredAr.Open().EnterRecord());
+	StructuredAr.Close();
+}
+
+void UObject::Serialize(FStructuredArchive::FRecord Record)
+{
+	SerializeScriptProperties(Record.EnterField("Properties"));
+}
+
+void UObject::SerializeScriptProperties(FStructuredArchive::FSlot Slot)
+{
+	FStructuredArchive::FRecord Properties = Slot.EnterRecord();
+	const bool bIsLoading = Properties.GetUnderlyingArchive().IsLoading();
+	for (UClass* Class = GetClass(); Class; Class = Class->Super)
+		SerializeArchiveFields(Properties, this, Class->GetProperties(), bIsLoading);
 }
 
 

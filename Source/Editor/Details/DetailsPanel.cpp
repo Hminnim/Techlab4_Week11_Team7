@@ -705,10 +705,10 @@ namespace
 		}
 	}
 
-	// UClass에 등록된 프로퍼티를 타입에 맞는 위젯으로 그린다
-	void DrawProperty(UObject* Object, const FProperty& Property, ImFont* CustomFont)
+	// Container는 이 필드를 직접 담고 있는 객체 또는 구조체의 주소다.
+	bool DrawPropertyValue(UObject* Object, void* Container, const FProperty& Property, ImFont* CustomFont)
 	{
-		void* ValuePtr = reinterpret_cast<char*>(Object) + Property.Offset;
+		void* ValuePtr = static_cast<char*>(Container) + Property.Offset;
 		const FString Label = "##" + Property.Name;
 
 		const char* DisplayName = Property.Name.c_str();
@@ -718,7 +718,8 @@ namespace
 		const float AvailableWidth = ImGui::GetContentRegionAvail().x;
 		const float LabelWidth = AvailableWidth * 0.45f;
 
-		const bool bInline = Property.Type != EPropertyType::Transform && AvailableWidth >= 260.0f && ImGui::CalcTextSize(DisplayName).x < LabelWidth;
+		const bool bInline = Property.Type != EPropertyType::Transform && Property.Type != EPropertyType::Struct
+			&& AvailableWidth >= 260.0f && ImGui::CalcTextSize(DisplayName).x < LabelWidth;
 
 		ImGui::AlignTextToFramePadding();
 		ImGui::TextWrapped("%s", DisplayName);
@@ -836,6 +837,8 @@ namespace
 		case EPropertyType::Object:
 		{
 			UObject** ObjPtr = static_cast<UObject**>(ValuePtr);
+			UObject* DirectOwner = Container == Object ? Object : nullptr;
+			const UObject* PreviousValue = DirectOwner ? nullptr : *ObjPtr;
 
 			if (Property.Class == UMaterial::StaticClass())
 			{
@@ -846,16 +849,37 @@ namespace
 			}
 			else if (Property.Class == UFont::StaticClass())
 			{
-				DrawFontSlot(Object, reinterpret_cast<UFont**>(ObjPtr));
+				DrawFontSlot(DirectOwner, reinterpret_cast<UFont**>(ObjPtr));
 			}
 			else if (Property.Class == UStaticMesh::StaticClass())
 			{
-				DrawMeshSlot(Object, reinterpret_cast<UStaticMesh**>(ObjPtr));
+				DrawMeshSlot(DirectOwner, reinterpret_cast<UStaticMesh**>(ObjPtr));
 			}
 			else if (Property.Class == USkeletalMesh::StaticClass())
 			{
-				DrawSkeletalMeshSlot(Object, reinterpret_cast<USkeletalMesh**>(ObjPtr));
+				DrawSkeletalMeshSlot(DirectOwner, reinterpret_cast<USkeletalMesh**>(ObjPtr));
 			}
+			if (!DirectOwner) bChanged |= *ObjPtr != PreviousValue;
+			break;
+		}
+		case EPropertyType::Struct:
+		{
+			ImGui::PushID(DisplayName);
+			ImGui::Indent();
+			for (const FProperty& Member : Property.GetScriptStruct()->GetProperties())
+			{
+				if (!Member.HasAnyFlags(CPF_Edit))
+					continue;
+
+				ImGui::PushID(Member.Name.c_str());
+				const bool bReadOnly = Member.HasAnyFlags(CPF_EditConst);
+				if (bReadOnly) ImGui::BeginDisabled();
+				bChanged |= DrawPropertyValue(Object, ValuePtr, Member, CustomFont);
+				if (bReadOnly) ImGui::EndDisabled();
+				ImGui::PopID();
+			}
+			ImGui::Unindent();
+			ImGui::PopID();
 			break;
 		}
 		default:
@@ -863,7 +887,12 @@ namespace
 			break;
 		}
 
-		if (bChanged)
+		return bChanged;
+	}
+
+	void DrawProperty(UObject* Object, const FProperty& Property, ImFont* CustomFont)
+	{
+		if (DrawPropertyValue(Object, Object, Property, CustomFont))
 		{
 			Object->PostEditChangeProperty(Property);
 		}
