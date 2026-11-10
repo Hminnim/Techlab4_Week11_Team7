@@ -24,25 +24,6 @@ public:
 	{
 		return CastChecked<T>(GetDefaultObject());
 	}
-
-	template <typename T>
-	void AddProperty(const FString& InName, uint64 InOffset, uint32 InFlags = CPF_Default)
-	{
-		UClass* ObjClass = nullptr;
-		if constexpr (std::is_pointer_v<T> &&
-			std::is_base_of_v<UObject, std::remove_pointer_t<T>>)
-		{
-			ObjClass = std::remove_pointer_t<T>::StaticClass();
-		}
-
-		Properties.Add({ InName, GetPropertyType<T>(), InOffset, sizeof(T), ObjClass, InFlags });
-	}
-
-	template <typename T>
-	void AddProperty(const FString& InName, uint64 InOffset, EPropertyType InType, uint32 InFlags = CPF_Default)
-	{
-		Properties.Add({ InName, InType, InOffset, sizeof(T), nullptr, InFlags });
-	}
 private:
 	const UStruct* GetSuperStruct() const override { return Super; }
 
