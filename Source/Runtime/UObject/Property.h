@@ -10,10 +10,17 @@
 class UMaterial;
 class UFont;
 class UScriptStruct;
+struct FArrayPropertyOps;
 
 using FScriptStructAccessor = UScriptStruct* (*)();
 
-enum class EPropertyType { Unknown, Float, Int, String, Bool, Vector, Vector4, Color, LinearColor, Rotator, Transform, Object, Struct, Enum };
+enum class EPropertyType { Unknown, Float, Int, String, Bool, Vector, Vector4, Color, LinearColor, Rotator, Transform, Object, Struct, Enum, Array };
+
+template <typename T>
+struct TIsPropertyArray : std::false_type {};
+
+template <typename T>
+struct TIsPropertyArray<TArray<T>> : std::true_type {};
 
 template <typename T>
 constexpr EPropertyType GetPropertyType()
@@ -30,6 +37,10 @@ constexpr EPropertyType GetPropertyType()
     else if constexpr (std::is_enum_v<T> && TEnumInfo<T>::bReflected)
     {
         return EPropertyType::Enum;
+    }
+    else if constexpr (TIsPropertyArray<T>::value)
+    {
+        return EPropertyType::Array;
     }
     else
     {
@@ -92,10 +103,20 @@ struct FProperty
     uint32 Flags = CPF_Default;
     FScriptStructAccessor ResolveScriptStruct = nullptr;
     const FEnumPropertyOps* Enum = nullptr;
+    const FArrayPropertyOps* Array = nullptr;
 
     bool HasAnyFlags(uint32 InFlags) const { return (Flags & InFlags) != 0; }
     const UScriptStruct* GetScriptStruct() const
     {
         return ResolveScriptStruct ? ResolveScriptStruct() : nullptr;
     }
+};
+
+struct FArrayPropertyOps
+{
+    const FProperty& (*GetElementProperty)();
+    int32 (*Num)(const void* Array);
+    void (*Resize)(void* Array, int32 Count);
+    void* (*GetElement)(void* Array, int32 Index);
+    void (*Copy)(void* Dest, const void* Source);
 };

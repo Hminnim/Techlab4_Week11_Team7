@@ -706,12 +706,12 @@ namespace
 	}
 
 	// Container는 이 필드를 직접 담고 있는 객체 또는 구조체의 주소다.
-	bool DrawPropertyValue(UObject* Object, void* Container, const FProperty& Property, ImFont* CustomFont)
+	bool DrawPropertyValue(UObject* Object, void* Container, const FProperty& Property, ImFont* CustomFont,
+		const char* NameOverride = nullptr)
 	{
 		void* ValuePtr = static_cast<char*>(Container) + Property.Offset;
-		const FString Label = "##" + Property.Name;
-
-		const char* DisplayName = Property.Name.c_str();
+		const char* DisplayName = NameOverride ? NameOverride : Property.Name.c_str();
+		const FString Label = FString("##") + DisplayName;
 
 		// 패널이 넓으면 라벨 | 값을 한 줄에, 좁거나 라벨이 길면 라벨 아래 줄에 값을 놓는다.
 		const float StartX = ImGui::GetCursorPosX();
@@ -719,6 +719,7 @@ namespace
 		const float LabelWidth = AvailableWidth * 0.45f;
 
 		const bool bInline = Property.Type != EPropertyType::Transform && Property.Type != EPropertyType::Struct
+			&& Property.Type != EPropertyType::Array
 			&& AvailableWidth >= 260.0f && ImGui::CalcTextSize(DisplayName).x < LabelWidth;
 
 		ImGui::AlignTextToFramePadding();
@@ -912,6 +913,26 @@ namespace
 				}
 				ImGui::EndCombo();
 			}
+			break;
+		}
+		case EPropertyType::Array:
+		{
+			const FArrayPropertyOps& Array = *Property.Array;
+			const FProperty& Element = Array.GetElementProperty();
+			const int32 Count = Array.Num(ValuePtr);
+			ImGui::PushID(DisplayName);
+			ImGui::Indent();
+			if (Count == 0)
+				ImGui::TextDisabled("(Empty)");
+			for (int32 Index = 0; Index < Count; ++Index)
+			{
+				ImGui::PushID(Index);
+				const FString ElementName = "[" + std::to_string(Index) + "]";
+				bChanged |= DrawPropertyValue(Object, Array.GetElement(ValuePtr, Index), Element, CustomFont, ElementName.c_str());
+				ImGui::PopID();
+			}
+			ImGui::Unindent();
+			ImGui::PopID();
 			break;
 		}
 		default:

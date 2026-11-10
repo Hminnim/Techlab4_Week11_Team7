@@ -31,10 +31,4 @@ private:
 	friend FName MakeUniqueObjectName(UObject*, const UClass*, FName);
 };
 
-//보류
-inline void CopyProperties(UObject* Src, UObject* Dst, UClass* FromClass)
-{
-	for (UClass* c = FromClass; c; c = c->Super)
-		for (const FProperty& p : c->Properties)
-			memcpy((char*)Dst + p.Offset, (char*)Src + p.Offset, p.Size);
-}
+void CopyProperties(UObject* Src, UObject* Dst, UClass* FromClass);

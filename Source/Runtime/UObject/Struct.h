@@ -14,6 +14,23 @@ public:
 	template <typename T>
 	void AddProperty(const FString& InName, uint64 InOffset, uint32 InFlags = CPF_Default)
 	{
+		Properties.Add(MakeProperty<T>(InName, InOffset, InFlags));
+	}
+
+	template <typename T>
+	void AddProperty(const FString& InName, uint64 InOffset, EPropertyType InType, uint32 InFlags = CPF_Default)
+	{
+		Properties.Add({ InName, InType, InOffset, sizeof(T), nullptr, InFlags });
+	}
+
+protected:
+	UStruct() : UObject(false) {}
+	virtual const UStruct* GetSuperStruct() const { return nullptr; }
+
+private:
+	template <typename T>
+	static FProperty MakeProperty(const FString& InName, uint64 InOffset, uint32 InFlags)
+	{
 		constexpr EPropertyType Type = GetPropertyType<T>();
 		FProperty Property{ InName, Type, InOffset, sizeof(T), nullptr, InFlags };
 		if constexpr (std::is_pointer_v<T> &&
@@ -35,19 +52,29 @@ public:
 			};
 			Property.Enum = &EnumOps;
 		}
+		else if constexpr (Type == EPropertyType::Array)
+		{
+			using Element = typename T::ElementType;
+			static_assert(!std::is_same_v<Element, bool>, "Reflected TArray elements must have an address. TArray<bool> uses packed bits.");
+			static_assert(std::is_default_constructible_v<Element> && std::is_copy_constructible_v<Element>
+				&& std::is_copy_assignable_v<Element>, "Reflected TArray elements must be default constructible and copyable.");
+			static constexpr FArrayPropertyOps ArrayOps{
+				[]() -> const FProperty&
+				{
+					// 원소가 소유 클래스의 포인터일 수 있으므로 실제 조회까지 등록을 미룬다.
+					static const FProperty ElementProperty = MakeProperty<Element>("", 0, CPF_Default);
+					return ElementProperty;
+				},
+				[](const void* Array) { return static_cast<const T*>(Array)->Num(); },
+				[](void* Array, int32 Count) { static_cast<T*>(Array)->SetNum(Count); },
+				[](void* Array, int32 Index) -> void* { return &(*static_cast<T*>(Array))[Index]; },
+				[](void* Dest, const void* Source) { *static_cast<T*>(Dest) = *static_cast<const T*>(Source); },
+			};
+			Property.Array = &ArrayOps;
+		}
 
-		Properties.Add(std::move(Property));
+		return Property;
 	}
-
-	template <typename T>
-	void AddProperty(const FString& InName, uint64 InOffset, EPropertyType InType, uint32 InFlags = CPF_Default)
-	{
-		Properties.Add({ InName, InType, InOffset, sizeof(T), nullptr, InFlags });
-	}
-
-protected:
-	UStruct() : UObject(false) {}
-	virtual const UStruct* GetSuperStruct() const { return nullptr; }
 };
 
 class UScriptStruct : public UStruct
