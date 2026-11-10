@@ -35,6 +35,8 @@ private:
 	void TickCameraInput();
 
 	void DrawSequenceInfo();
+	void SetPreviewTime(float NewTime);
+	void EvaluatePreviewPose();
 
 	bool bRenderGrid = true;
 	bool bRequestFocus = false;
@@ -46,6 +48,7 @@ private:
 
 	// AssetManager가 관리하는 에셋을 참조
 	UAnimSequence* EditSequence = nullptr;
+	float CurrentTime = 0.0f;
 
 	FEditorViewportClient ViewportClient;
 };

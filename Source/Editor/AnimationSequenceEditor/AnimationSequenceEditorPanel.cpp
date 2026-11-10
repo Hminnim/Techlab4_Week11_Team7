@@ -10,7 +10,11 @@
 #include "Camera/ViewportCameraMovement.h"
 #include "Editor/Settings/SettingsPanel.h"
 #include "Engine/Classes/Animation/AnimSequence.h"
+#include "Engine/Classes/Animation/BonePose.h"
 #include "Render/SkeletalMesh.h"
+
+#include <algorithm>
+#include <cmath>
 
 bool FAnimationSequenceEditorPanel::Init()
 {
@@ -73,6 +77,12 @@ void FAnimationSequenceEditorPanel::OnRender()
 	{
 		ImGui::Checkbox("Grid", &bRenderGrid);
 		DrawSequenceInfo();
+		if (EditSequence)
+		{
+			float EditedTime = CurrentTime;
+			if (ImGui::InputFloat("Time (sec)", &EditedTime, 0.01f, 0.1f, "%.3f"))
+				SetPreviewTime(EditedTime);
+		}
 		ImGui::Separator();
 		DrawViewport();
 	}
@@ -101,6 +111,7 @@ bool FAnimationSequenceEditorPanel::OpenAsset(UAnimSequence* InSequence, USkelet
 	if (PreviewMeshComponent->GetSkeletalMesh() != InSkeletalMesh) return false;
 	PreviewMeshComponent->ResetToReferencePose();
 	EditSequence = InSequence;
+	SetPreviewTime(0.0f);
 
 	const FBox Bounds = PreviewMeshComponent->CalcBounds();
 	ViewportClient.FocusBounds(Bounds);
@@ -108,6 +119,37 @@ bool FAnimationSequenceEditorPanel::OpenAsset(UAnimSequence* InSequence, USkelet
 	SetOpen(true);
 	bRequestFocus = true;
 	return true;
+}
+
+void FAnimationSequenceEditorPanel::SetPreviewTime(float NewTime)
+{
+	if (!EditSequence || !std::isfinite(NewTime)) return;
+	const float Length = EditSequence->GetPlayLength();
+	if (!std::isfinite(Length) || Length < 0.0f) return;
+
+	CurrentTime = std::clamp(NewTime, 0.0f, Length);
+	EvaluatePreviewPose();
+}
+
+void FAnimationSequenceEditorPanel::EvaluatePreviewPose()
+{
+	if (!EditSequence || !PreviewMeshComponent) return;
+	USkeletalMesh* Mesh = PreviewMeshComponent->GetSkeletalMesh();
+	if (!Mesh) return;
+
+	// 메시의 스켈레톤을 기준으로 현재 시간의 본별 로컬 자세를 구한다.
+	FCompactPose Pose;
+	Pose.SetRefSkeleton(&Mesh->GetRefSkeleton());
+	FAnimExtractContext Context;
+	Context.CurrentTime = CurrentTime;
+	Context.bLooping = false;
+	EditSequence->GetAnimationPose(Pose, Context);
+
+	if (Pose.GetNumBones() != PreviewMeshComponent->GetNumBones()) return;
+	for (int32 BoneIndex = 0; BoneIndex < Pose.GetNumBones(); ++BoneIndex)
+	{
+		PreviewMeshComponent->SetBoneLocalTransform(BoneIndex, Pose[BoneIndex]);
+	}
 }
 
 void FAnimationSequenceEditorPanel::DrawSequenceInfo()
@@ -132,6 +174,7 @@ UWorld* FAnimationSequenceEditorPanel::ReleasePreviewWorld()
 	// 월드를 삭제하기 전에 관찰 참조부터 해제
 	ViewportClient.SetWorld(nullptr);
 	EditSequence = nullptr;
+	CurrentTime = 0.0f;
 	PreviewMeshComponent = nullptr;
 
 	UWorld* ReleasedWorld = PreviewWorld;
