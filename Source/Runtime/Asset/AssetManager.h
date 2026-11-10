@@ -24,6 +24,13 @@ struct FMeshMaterialSlot;
 struct FSkeletalMeshData;
 struct FFbxBakeResult;
 
+struct FFbxAnimationAsset
+{
+	FString AssetKey;
+	FString DisplayName;
+	UAnimSequence* Sequence = nullptr;
+};
+
 struct FFbxAnimationRequest
 {
 	FString Path;
@@ -92,6 +99,8 @@ public:
 	// FBX의 AnimStack마다 UAnimSequence를 생성해서 이름으로 키 등록
 	// 등록한 개수를 반환
 	int32 LoadFbxAnimations(const FString& Key, const FString& Path, FString& OutError);
+	// 같은 FBX 아래에 이미 등록된 클립을 조회한다. 임포트나 에셋 생성은 하지 않는다.
+	void GetFbxAnimationAssets(const FString& FbxKey, TArray<FFbxAnimationAsset>& OutAssets) const;
 
 	FLODGenerateResult GenerateStaticMeshLODs(UStaticMesh& Mesh,const FLODGenerateRequest& Request);
 

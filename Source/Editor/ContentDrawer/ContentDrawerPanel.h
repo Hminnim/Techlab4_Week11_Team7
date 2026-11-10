@@ -7,6 +7,9 @@
 
 namespace fs = std::filesystem;
 
+class UAnimSequence;
+class USkeletalMesh;
+
 class FContentDrawerPanel : public IEditorPanel
 {
 public:
@@ -21,11 +24,15 @@ public:
 	void SetCreateWidgetCallback(std::function<void(const FString&)> InCallback) { OnCreateWidget = std::move(InCallback); }
 
 	void SetOpenSkeletalCallback(std::function<void(const FString&)> InCallback) { OnOpenSkeletal = std::move(InCallback); }
+	void SetOpenAnimationCallback(std::function<void(UAnimSequence*, USkeletalMesh*)> InCallback) { OnOpenAnimation = std::move(InCallback); }
 
 private:
+	void DrawAnimationAssets(const fs::path& FbxPath, float ThumbnailSize);
+
 	std::function<void(const FString&)> OnOpenWidget;
 	std::function<void(const FString&)> OnCreateWidget;
 	std::function<void(const FString&)> OnOpenSkeletal;
+	std::function<void(UAnimSequence*, USkeletalMesh*)> OnOpenAnimation;
 	char NewAssetName[64] = "NewWidget";
 	bool bOpenCreateWidget = false;
 

@@ -111,6 +111,8 @@ void FContentDrawerPanel::OnRender()
 				if (TypeError)
 					continue;
 
+				const bool bIsFbx = !bIsDirectory && (Path.extension() == ".fbx" || Path.extension() == ".FBX");
+
 				ImGui::TableNextColumn();
 
 				std::string PathString = Path.generic_string();
@@ -233,16 +235,50 @@ void FContentDrawerPanel::OnRender()
 						}
 					}
 				}
-				// 파일 이름 표시
-				ImGui::TextWrapped("%s", FilenameString.c_str());
+				if (bIsFbx)
+					ImGui::TextWrapped("[Mesh] %s", Path.stem().string().c_str());
+				else
+					ImGui::TextWrapped("%s", FilenameString.c_str());
 
 				ImGui::PopID();
+
+				// FBX의 클립은 파일이 아니라 등록된 에셋이므로 별도 항목으로 그린다.
+				if (bIsFbx)
+					DrawAnimationAssets(Path, thumbnailSize);
 			}
 			ImGui::EndTable();
 		}
 	}
 	ImGui::EndChild();
 	ImGui::End();
+}
+
+void FContentDrawerPanel::DrawAnimationAssets(const fs::path& FbxPath, float ThumbnailSize)
+{
+	const FString FbxKey = FbxPath.lexically_relative(AssetRootPath).generic_string();
+	USkeletalMesh* Mesh = UAssetManager::GetAssetByPath<USkeletalMesh>(FbxKey);
+	if (!Mesh) return;
+
+	TArray<FFbxAnimationAsset> Clips;
+	UAssetManager::Get().GetFbxAnimationAssets(FbxKey, Clips);
+	for (const FFbxAnimationAsset& Clip : Clips)
+	{
+		ImGui::TableNextColumn();
+		ImGui::PushID(Clip.AssetKey.c_str());
+		ImGui::BeginGroup();
+		ImGui::Button("Animation", ImVec2(ThumbnailSize, ThumbnailSize));
+		ImGui::TextWrapped("%s", Clip.DisplayName.c_str());
+		ImGui::EndGroup();
+
+		// 이름과 썸네일을 포함한 항목 전체에서 더블클릭을 받는다.
+		if (ImGui::IsItemHovered())
+		{
+			ImGui::SetTooltip("Animation: %s\nSource: %s", Clip.DisplayName.c_str(), FbxPath.generic_string().c_str());
+			if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) && OnOpenAnimation)
+				OnOpenAnimation(Clip.Sequence, Mesh);
+		}
+		ImGui::PopID();
+	}
 }
 
 void FContentDrawerPanel::RenderFolderTree(const fs::path& Path, fs::path& SelectedPath)

@@ -9,6 +9,8 @@
 #include "Components/PointLightComponent.h"
 #include "Camera/ViewportCameraMovement.h"
 #include "Editor/Settings/SettingsPanel.h"
+#include "Engine/Classes/Animation/AnimSequence.h"
+#include "Render/SkeletalMesh.h"
 
 bool FAnimationSequenceEditorPanel::Init()
 {
@@ -59,11 +61,19 @@ void FAnimationSequenceEditorPanel::Tick(float DeltaTime)
 void FAnimationSequenceEditorPanel::OnRender()
 {
 	ImGui::SetNextWindowSize(ImVec2(1000.0f, 700.0f), ImGuiCond_FirstUseEver);
+	if (bRequestFocus)
+	{
+		ImGui::SetNextWindowFocus();
+		ImGui::SetNextWindowCollapsed(false);
+		bRequestFocus = false;
+	}
 
 	bool bPanelOpen = IsOpen();
 	if (ImGui::Begin(GetPanelName(), &bPanelOpen))
 	{
 		ImGui::Checkbox("Grid", &bRenderGrid);
+		DrawSequenceInfo();
+		ImGui::Separator();
 		DrawViewport();
 	}
 
@@ -71,10 +81,57 @@ void FAnimationSequenceEditorPanel::OnRender()
 	SetOpen(bPanelOpen);
 }
 
+// 콘텐츠 브라우저에서 선택한 클립과 같은 FBX의 메시를 연결한다.
+bool FAnimationSequenceEditorPanel::OpenAsset(UAnimSequence* InSequence, USkeletalMesh* InSkeletalMesh)
+{
+	if (!PreviewWorld || !PreviewMeshComponent || !InSequence || !InSkeletalMesh)
+	{
+		HTR_LOG(Error, "Cannot open animation sequence: preview or asset is missing.");
+		return false;
+	}
+
+	const UAnimDataModel* Model = InSequence->GetDataModel();
+	if (!Model || Model->GetNumberOfKeys() <= 0 || InSkeletalMesh->GetRefSkeleton().RawRefBoneInfo.IsEmpty())
+	{
+		HTR_LOG(Error, "Cannot open animation sequence '{}': animation keys or mesh skeleton are missing.", InSequence->GetPath());
+		return false;
+	}
+
+	PreviewMeshComponent->SetSkeletalMesh(InSkeletalMesh);
+	if (PreviewMeshComponent->GetSkeletalMesh() != InSkeletalMesh) return false;
+	PreviewMeshComponent->ResetToReferencePose();
+	EditSequence = InSequence;
+
+	const FBox Bounds = PreviewMeshComponent->CalcBounds();
+	ViewportClient.FocusBounds(Bounds);
+	CameraSpeed = std::max(1.0f, (Bounds.Max - Bounds.Min).Length() * 0.5f);
+	SetOpen(true);
+	bRequestFocus = true;
+	return true;
+}
+
+void FAnimationSequenceEditorPanel::DrawSequenceInfo()
+{
+	if (!EditSequence)
+	{
+		ImGui::TextUnformatted("No animation sequence selected.");
+		return;
+	}
+
+	const FString& Key = EditSequence->GetPath();
+	const size_t Separator = Key.find_last_of('/');
+	const FString Name = Separator == FString::npos ? Key : Key.substr(Separator + 1);
+	ImGui::Text("Animation: %s", Name.c_str());
+	if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", Key.c_str());
+	ImGui::Text("Length: %.3f sec | FPS: %.2f | Sampled Keys: %d",
+		EditSequence->GetPlayLength(), EditSequence->GetSamplingFrameRate().AsDecimal(), EditSequence->GetNumberOfSampledKeys());
+}
+
 UWorld* FAnimationSequenceEditorPanel::ReleasePreviewWorld()
 {
 	// 월드를 삭제하기 전에 관찰 참조부터 해제
 	ViewportClient.SetWorld(nullptr);
+	EditSequence = nullptr;
 	PreviewMeshComponent = nullptr;
 
 	UWorld* ReleasedWorld = PreviewWorld;

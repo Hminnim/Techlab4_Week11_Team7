@@ -367,6 +367,10 @@ bool UEditorEngine::Init()
 	ContentDrawerPanel->SetCreateWidgetCallback([this](const FString& Path) { UIEditorPanel->NewAsset(Path); });
 	ContentDrawerPanel->SetOpenWidgetCallback([this](const FString& Path) { UIEditorPanel->OpenAsset(Path); });
 	ContentDrawerPanel->SetOpenSkeletalCallback([this](const FString& Path) { SkeletalMeshEditorPanel->OpenAsset(Path); });
+	ContentDrawerPanel->SetOpenAnimationCallback([this](UAnimSequence* Sequence, USkeletalMesh* Mesh)
+	{
+		AnimationSequenceEditorPanel->OpenAsset(Sequence, Mesh);
+	});
 	ViewportsPanel->SetSkeletalMeshDropCallback([this](USkeletalMesh* Mesh, int32 ViewIndex, const FVector2& Mouse)
 	{
 		if (!Mesh || PlayWorld || !EditorWorld) return;
