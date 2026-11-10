@@ -9,12 +9,14 @@ int32 UBlendSpace::AddSample(const FVector& SampleValue)
     SampleToAdd.Animation = nullptr;
     SampleToAdd.SamepleVector = SampleValue;
 
+    SampleData.Add(SampleToAdd);
+
     std::sort(SampleData.begin(), SampleData.end(), [](const FBlendSample& A, const FBlendSample& B)
         {
             return A.SamepleVector.X < B.SamepleVector.X;
         });
 
-    return SampleData.Add(SampleToAdd);
+    return SampleData.Num() - 1;
 }
 
 int32 UBlendSpace::AddSample(UAnimSequence* Animation, const FVector& SampleValue)
@@ -23,12 +25,14 @@ int32 UBlendSpace::AddSample(UAnimSequence* Animation, const FVector& SampleValu
     SampleToAdd.Animation = Animation;
     SampleToAdd.SamepleVector = SampleValue;
 
+    SampleData.Add(SampleToAdd);
+
     std::sort(SampleData.begin(), SampleData.end(), [](const FBlendSample& A, const FBlendSample& B)
         {
             return A.SamepleVector.X < B.SamepleVector.X;
         });
 
-    return SampleData.Add(SampleToAdd);
+    return SampleData.Num() - 1;
 }
 
 bool UBlendSpace::GetSamplesFromBlendInput(const FVector& BlendInput, TArray<FBlendSampleData>& OutSampleDataList) const
@@ -180,8 +184,6 @@ void UBlendSpace::GetAnimationPose(TArray<FBlendSampleData>& BlendSampleDataCach
     }
     
     const int32 NumBones = OutPose.GetNumBones();
-    TArray<FBoneTransform> TempAtoms;
-    TempAtoms.SetNum(NumBones);
 
     FAnimationRuntime::BlendPosesTogether(ChildrenPoses, ChildrenCurves, ChildrenWeights, OutPose, OutCurve);
 }
