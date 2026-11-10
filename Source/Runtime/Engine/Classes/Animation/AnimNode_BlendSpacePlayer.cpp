@@ -2,13 +2,13 @@
 #include "AnimNode_BlendSpacePlayer.h"
 #include "BlendSpace.h"
 
-void FAnimnode_BlendSpacePlayer::Initialize(const FAnimationInitializeContext& Context)
+void FAnimNode_BlendSpacePlayer::Initialize(const FAnimationInitializeContext& Context)
 {
 	InternalTimeAccumulator = 0.0f;
 	BlendSampleDataCache.Reset();
 }
 
-void FAnimnode_BlendSpacePlayer::Update(const FAnimationUpdateContext& Context)
+void FAnimNode_BlendSpacePlayer::Update(const FAnimationUpdateContext& Context)
 {
     if(!BlendSpace) return;
     
@@ -36,7 +36,7 @@ void FAnimnode_BlendSpacePlayer::Update(const FAnimationUpdateContext& Context)
     }
 }
 
-void FAnimnode_BlendSpacePlayer::Evaluate(FPoseContext& Output)
+void FAnimNode_BlendSpacePlayer::Evaluate(FPoseContext& Output)
 {
     if(!BlendSpace)
     {

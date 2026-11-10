@@ -5,7 +5,7 @@
 class UBlendSpace;
 struct FBlendSampleData;
 
-struct FAnimnode_BlendSpacePlayer : public FAnimNode_Base
+struct FAnimNode_BlendSpacePlayer : public FAnimNode_Base
 {
 	UBlendSpace* BlendSpace = nullptr;
 	TArray<FBlendSampleData> BlendSampleDataCache;
