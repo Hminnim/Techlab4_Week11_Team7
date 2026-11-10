@@ -156,6 +156,10 @@ namespace
 					SerializeJsonFields(Value, Ptr, Property.GetScriptStruct()->GetProperties(), bIsLoading);
 				break;
 			}
+			case EPropertyType::Enum:
+				if (bIsLoading) Property.Enum->Write(Ptr, Handle[Property.Name].get<int64>());
+				else Handle[Property.Name] = Property.Enum->Read(Ptr);
+				break;
 			case EPropertyType::Object:
 			{
 				UObject*& Value = *static_cast<UObject**>(Ptr);
@@ -232,6 +236,13 @@ namespace
 			case EPropertyType::Struct:
 				SerializeArchiveFields(Value.EnterRecord(), Ptr, Property.GetScriptStruct()->GetProperties(), bIsLoading);
 				break;
+			case EPropertyType::Enum:
+			{
+				int64 Number = Property.Enum->Read(Ptr);
+				Value << Number;
+				if (bIsLoading) Property.Enum->Write(Ptr, Number);
+				break;
+			}
 			case EPropertyType::Object:
 			{
 				if(Property.Class == UMaterial::StaticClass())

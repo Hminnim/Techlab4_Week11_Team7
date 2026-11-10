@@ -882,6 +882,38 @@ namespace
 			ImGui::PopID();
 			break;
 		}
+		case EPropertyType::Enum:
+		{
+			const FEnumPropertyOps& Enum = *Property.Enum;
+			const int64 Number = Enum.Read(ValuePtr);
+			FString Preview = std::to_string(Number);
+			for (const FEnumEntry& Entry : Enum.Info->Entries)
+			{
+				if (!Entry.bHidden && Entry.Value == Number)
+				{
+					Preview = Entry.Name;
+					break;
+				}
+			}
+			if (ImGui::BeginCombo(Label.c_str(), Preview.c_str()))
+			{
+				for (const FEnumEntry& Entry : Enum.Info->Entries)
+				{
+					if (Entry.bHidden)
+						continue;
+
+					const bool bSelected = Entry.Value == Number;
+					if (ImGui::Selectable(Entry.Name, bSelected) && !bSelected)
+					{
+						Enum.Write(ValuePtr, Entry.Value);
+						bChanged = true;
+					}
+					if (bSelected) ImGui::SetItemDefaultFocus();
+				}
+				ImGui::EndCombo();
+			}
+			break;
+		}
 		default:
 			ImGui::TextDisabled("(Unsupported)");
 			break;

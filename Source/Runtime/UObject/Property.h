@@ -5,6 +5,7 @@
 #include "Math/Color.h"
 #include "Math/Transform.h"
 #include "Math/Color.h"
+#include "Enum.h"
 
 class UMaterial;
 class UFont;
@@ -12,7 +13,7 @@ class UScriptStruct;
 
 using FScriptStructAccessor = UScriptStruct* (*)();
 
-enum class EPropertyType { Unknown, Float, Int, String, Bool, Vector, Vector4, Color, LinearColor, Rotator, Transform, Object, Struct };
+enum class EPropertyType { Unknown, Float, Int, String, Bool, Vector, Vector4, Color, LinearColor, Rotator, Transform, Object, Struct, Enum };
 
 template <typename T>
 constexpr EPropertyType GetPropertyType()
@@ -25,6 +26,10 @@ constexpr EPropertyType GetPropertyType()
     else if constexpr (requires { static_cast<FScriptStructAccessor>(&T::StaticStruct); })
     {
         return EPropertyType::Struct;
+    }
+    else if constexpr (std::is_enum_v<T> && TEnumInfo<T>::bReflected)
+    {
+        return EPropertyType::Enum;
     }
     else
     {
@@ -70,6 +75,13 @@ enum EPropertyFlags : uint32
     CPF_Default         = CPF_EditAnywhere,
 };
 
+struct FEnumPropertyOps
+{
+    const FEnumInfo* Info;
+    int64 (*Read)(const void* Value);
+    void (*Write)(void* Value, int64 Number);
+};
+
 struct FProperty
 {
     FString Name;
@@ -79,6 +91,7 @@ struct FProperty
     UClass* Class = nullptr;
     uint32 Flags = CPF_Default;
     FScriptStructAccessor ResolveScriptStruct = nullptr;
+    const FEnumPropertyOps* Enum = nullptr;
 
     bool HasAnyFlags(uint32 InFlags) const { return (Flags & InFlags) != 0; }
     const UScriptStruct* GetScriptStruct() const

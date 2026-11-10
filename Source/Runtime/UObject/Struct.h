@@ -26,6 +26,15 @@ public:
 			// 구조체의 필드가 이 타입을 참조할 수 있으므로 조회할 때 등록한다.
 			Property.ResolveScriptStruct = &T::StaticStruct;
 		}
+		else if constexpr (Type == EPropertyType::Enum)
+		{
+			static const FEnumPropertyOps EnumOps{
+				TEnumInfo<T>::template Get<>(),
+				[](const void* Value) { return static_cast<int64>(*static_cast<const T*>(Value)); },
+				[](void* Value, int64 Number) { *static_cast<T*>(Value) = static_cast<T>(Number); },
+			};
+			Property.Enum = &EnumOps;
+		}
 
 		Properties.Add(std::move(Property));
 	}
