@@ -46,6 +46,7 @@ public:
 	void SetRestartHitOnReentry(bool bEnabled);
 	bool GetRestartHitOnReentry() const { return bRestartHitOnReentry; }
 	FName GetCurrentStateName() const { return StateMachine.GetCurrentStateName(); }
+	const FAnimStateMachine& GetStateMachine() const { return StateMachine.GetStateMachine(); }
 
 private:
 	enum class EJumpPhase

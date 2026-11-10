@@ -19,6 +19,7 @@ outputdir = "%{cfg.buildcfg}-%{cfg.system}-%{cfg.architecture}"
 
 IncludeDir = {}
 IncludeDir["ImGui"] = "Source/ThirdParty/ImGui"
+IncludeDir["ImGuiNodeEditor"] = "Source/ThirdParty/ImGuiNodeEditor" -- thedmd/imgui-node-editor v0.9.4
 IncludeDir["stb"]   = "Source/ThirdParty/stb"
 IncludeDir["json"]  = "Source/ThirdParty/json"
 IncludeDir["DDSLoader"] = "Source/ThirdParty/DDSLoader"
@@ -139,6 +140,9 @@ project "ImGui"
 		"%{IncludeDir.ImGui}/*.cpp",
 		"%{IncludeDir.ImGui}/backends/imgui_impl_win32.*",
 		"%{IncludeDir.ImGui}/backends/imgui_impl_dx11.*",
+		"%{IncludeDir.ImGuiNodeEditor}/*.h",
+		"%{IncludeDir.ImGuiNodeEditor}/*.inl",
+		"%{IncludeDir.ImGuiNodeEditor}/*.cpp",
 	}
 
 	includedirs
@@ -277,6 +281,7 @@ project "HitoriEditor"
 		"Intermediate/Generated/Editor",    -- 추가
 		"%{IncludeDir.ImGui}",
 		"%{IncludeDir.ImGui}/backends",
+		"%{IncludeDir.ImGuiNodeEditor}",
 		"%{IncludeDir.stb}",
 		"%{IncludeDir.json}",
 		"%{IncludeDir.lua}",

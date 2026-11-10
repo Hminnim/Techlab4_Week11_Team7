@@ -21,8 +21,11 @@ public:
 	bool Update(float DeltaTime);
 
 	int32 GetCurrentState() const { return CurrentState; }
+	int32 GetInitialState() const { return InitialState; }
 	FName GetCurrentStateName() const;
 	float GetStateElapsedTime() const { return ElapsedTime; }
+	const TArray<FAnimStateDesc>& GetStates() const { return States; }
+	const TArray<FAnimTransitionDesc>& GetTransitions() const { return Transitions; }
 
 private:
 	bool IsValidState(int32 StateIndex) const;

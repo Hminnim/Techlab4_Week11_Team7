@@ -50,6 +50,7 @@
 
 #include "EditorEngine.generated.h"
 
+class FAnimationStateMachinePanel;
 class FSkeletalMeshEditorPanel;
 class FAnimationSequenceEditorPanel;
 
@@ -187,6 +188,7 @@ private:
 	FEditorControlsPanel* EditorControlsPanel = nullptr;
 	FSettingsPanel* SettingsPanel = nullptr;
 	FSequencerPanel* SequencerPanel = nullptr;
+	FAnimationStateMachinePanel* AnimationStateMachinePanel = nullptr;
 	FViewportsPanel* ViewportsPanel = nullptr;
 	FSplitRatio ViewportSplitRatio{0.5f, 0.5f};
 	ELayoutMode ViewportLayoutMode = ELayoutMode::QuadSplit;
