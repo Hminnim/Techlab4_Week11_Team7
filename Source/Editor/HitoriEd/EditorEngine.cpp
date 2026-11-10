@@ -36,6 +36,7 @@
 #include "Render/RenderResourceManager.h"
 
 #include "Render/RenderCommand.h"
+#include "Editor/AnimationStateMachine/AnimationStateMachinePanel.h"
 #include "Editor/Outliner/OutlinerPanel.h"
 #include "Editor/HitoriEd/EditorFileUtils.h"
 #include "Editor/Viewports/EditorViewportClient.h"
@@ -238,6 +239,12 @@ bool UEditorEngine::Init()
 
 	OutlinerPanel = EditorUI->AddEditorPanel<FOutlinerPanel>();
 	OutlinerPanel->SetWorld(GetActiveWorld());
+	AnimationStateMachinePanel = EditorUI->AddEditorPanel<FAnimationStateMachinePanel>();
+	AnimationStateMachinePanel->SetSelectedActorQuery([this]()
+	{
+		AActor* Actor = PlayWorld ? OutlinerPanel->GetSelectedActor() : nullptr;
+		return Actor && Actor->GetWorld() == PlayWorld ? Actor : nullptr;
+	});
 	OutlinerPanel->SetSelectionCallback(
 		[this](USceneComponent* Root)
 		{
@@ -1446,6 +1453,7 @@ void UEditorEngine::PreExit()
 	EndPlayMap();
 	// 시퀀서는 에디터 월드 액터를 가리키므로 월드보다 먼저 정리한다
 	if (SequencerPanel) SequencerPanel->Shutdown();
+	if (AnimationStateMachinePanel) AnimationStateMachinePanel->Shutdown();
 	if (SkeletalMeshEditorPanel) DestroyWorld(SkeletalMeshEditorPanel->ReleasePreviewWorld());
 	EditorWorld->ClearWorld();
 	// PIE 창이 열린 채 종료하면 Device가 살아 있을 때 Swapchain과 타깃을 먼저 정리한다.
