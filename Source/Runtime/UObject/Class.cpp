@@ -3,11 +3,7 @@
 
 #include "Object.h"
 
-UClass::UClass()
-	:UObject(false)
-{
-	//HTR_LOG(Info, "Create RTTI UClass");
-}
+UClass::UClass() = default;
 
 bool UClass::IsChildOf(const UClass* BaseClass) const
 {

@@ -1,11 +1,10 @@
 #pragma once
 
-#include "Property.h"
-#include "Object.h"
+#include "Struct.h"
 
 using ClassConstructor = UObject * (*)(void* Memory);
 
-class UClass : public UObject
+class UClass : public UStruct
 {
 public:
 	UClass();
@@ -15,13 +14,10 @@ public:
 	uint64 ClassSize = 0;
 	ClassConstructor Constructor = nullptr;
 
-	TArray<FProperty> Properties;
 	UObject* DefaultObject = nullptr;
 
 	bool IsChildOf(const UClass* BaseClass) const;
 	UObject* GetDefaultObject();
-
-	inline const TArray<FProperty>& GetProperties() const { return Properties; }
 
 	template<class T>
 	T* GetDefaultObject()
@@ -48,6 +44,8 @@ public:
 		Properties.Add({ InName, InType, InOffset, sizeof(T), nullptr, InFlags });
 	}
 private:
+	const UStruct* GetSuperStruct() const override { return Super; }
+
 	mutable int32 ClassUnique = 0;
 	friend FName MakeUniqueObjectName(UObject*, const UClass*, FName);
 };
