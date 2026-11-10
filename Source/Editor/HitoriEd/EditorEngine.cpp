@@ -42,6 +42,7 @@
 #include "Editor/HitoriEd/EditorFileUtils.h"
 #include "Editor/Viewports/EditorViewportClient.h"
 #include "Editor/SkeletalMeshEditor/SkeletalMeshEditorPanel.h"
+#include "Editor/AnimationSequenceEditor/AnimationSequenceEditorPanel.h"
 #include "UObject/UObjectIterator.h"
 
 #include "Core/EngineLog.h"
@@ -357,6 +358,7 @@ bool UEditorEngine::Init()
 	OutputLogPanel->SetEditorSettings(&SettingsPanel->GetMutableSettings());
 
 	UIEditorPanel = EditorUI->AddEditorPanel<FUIEditorPanel>();
+	EditorUI->AddEditorPanel<FAnimationSequenceEditorPanel>();
 	SkeletalMeshEditorPanel = EditorUI->AddEditorPanel<FSkeletalMeshEditorPanel>();
 	SkeletalMeshEditorPanel->SetEditorSettings(&SettingsPanel->GetMutableSettings());
 
