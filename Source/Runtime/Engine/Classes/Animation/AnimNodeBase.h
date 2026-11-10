@@ -7,7 +7,7 @@
 
 struct FAnimNode_Base;
 struct FAnimInstanceProxy;
-struct UAnimInstance;
+class UAnimInstance;
 
 struct FAnimationUpdateSharedContext
 {
@@ -41,7 +41,8 @@ public:
 	FAnimationBaseContext& operator=(const FAnimationBaseContext&) = default;
 
 public:
-	UObject* GetAnimInstanceObject() const;                
+	UObject* GetAnimInstanceObject() const;         
+	UAnimInstance* GetAnimInstance() const { return AnimInstance; }
 
 	void SetNodeId(int32 InNodeId)
 	{
@@ -63,6 +64,7 @@ protected:
 	bool bIsActive = true;
 	int32 CurrentNodeId = -1;
 	int32 PreviousNodeId = -1;
+	UAnimInstance* AnimInstance = nullptr;
 };
 
 struct FAnimationInitializeContext : public FAnimationBaseContext
@@ -114,6 +116,15 @@ public:
 	{
 		CurrentNodeId = Copy.CurrentNodeId;
 		PreviousNodeId = Copy.PreviousNodeId;
+		AnimInstance = Copy.AnimInstance;
+	}
+
+	FAnimationUpdateContext(UAnimInstance* InAnimInstance, float InDeltaTime)
+		: FAnimationBaseContext(InAnimInstance)
+		, CurrentWeight(1.0f)
+		, RootMotionWeightModifier(1.0f)
+		, DeltaTime(InDeltaTime)
+	{
 	}
 
 public:

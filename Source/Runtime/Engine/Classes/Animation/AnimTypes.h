@@ -6,6 +6,7 @@
 #include "Math/Vector.h"
 #include "Math/Quat.h"
 #include "MovieScene/MovieSceneFrameTime.h"
+#include "Math/Transform.h"
 
 using FVector3f = FVector;
 using FQuat4f = FQuat;
@@ -42,4 +43,27 @@ struct FAnimSequenceImportData
 
 struct FAnimationCurveData
 {
+};
+
+// 그래프를 한번 갱신하는 동안 재생 노드들이 추출한 루트 모션을 모은다.
+struct FRootMotionMovementParams
+{
+	bool bHasRootMotion = false;
+
+	void AccumulateWithBlend(const FTransform& InTransform, float InBlendWeight)
+	{
+		RootMotionTransform.Location += InTransform.Location * InBlendWeight;
+		bHasRootMotion = true;
+	}
+
+	void Clear()
+	{
+		bHasRootMotion = false;
+		RootMotionTransform = FTransform();
+	}
+
+	const FTransform& GetRootMotionTransform() const { return RootMotionTransform; }
+
+private:
+	FTransform RootMotionTransform;
 };

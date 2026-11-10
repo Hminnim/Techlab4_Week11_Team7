@@ -20,6 +20,13 @@ public:
 	virtual void NativeUpdateAnimation(float DeltaSeconds) {} // 변수를 갱신한다 (매 프레임)
 
 	void TriggerAnimNotifies(float DeltaSeconds) {}
+	void AccumulateRootMotion(const FTransform& Delta, float Weight) { RootMotion.AccumulateWithBlend(Delta, Weight); }
+	FRootMotionMovementParams ConsumeRootMotion()
+	{
+		FRootMotionMovementParams Consume = RootMotion;
+		RootMotion.Clear();
+		return Consume;
+	}
 
 	USkeletalMeshComponent* GetSkelMeshComponent() const { return OwningComponent; }
 	void SetOwningComponent(USkeletalMeshComponent* InComponent) { OwningComponent = InComponent; }
@@ -29,6 +36,9 @@ public:
 protected:
 	USkeletalMeshComponent* OwningComponent = nullptr;
 	FAnimNode_Base* RootNode = nullptr; // 그래프의 시작 노드 (StateMachine 등)
+
+private:
+	FRootMotionMovementParams RootMotion;
 };
 
 UCLASS()

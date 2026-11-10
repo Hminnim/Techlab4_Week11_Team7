@@ -1,5 +1,6 @@
 #include "EnginePCH.h"
 #include "AnimNode_SequencePlayer.h"
+#include "Engine/Classes/Animation/AnimInstance.h"
 
 void FAnimNode_SequencePlayer::Initialize(const FAnimationInitializeContext& Context)
 {
@@ -13,7 +14,18 @@ void FAnimNode_SequencePlayer::Update(const FAnimationUpdateContext& Context)
 		return;
 	}
 
-	CurrentPlayTime += Context.GetDeltaTime() * GetEffectivePlayRate();
+	const float PreviousTime = CurrentPlayTime;
+	const float MoveDelta = Context.GetDeltaTime() * GetEffectivePlayRate();
+	CurrentPlayTime += MoveDelta;
+
+	UAnimInstance* AnimInstance = Context.GetAnimInstance();
+
+	if (AnimInstance && Sequence->bEnableRootMotion)
+	{
+		const float Weight = Context.GetFinalBlendWeight() * Context.GetRootMotionWeightModifier();
+		const FTransform RootMotion = Sequence->ExtractRootMotion(PreviousTime, MoveDelta, bLoopAnimation);
+		AnimInstance->AccumulateRootMotion(RootMotion, Weight);
+	}
 
 	float PlayLength = Sequence->GetPlayLength();
 	if(bLoopAnimation)

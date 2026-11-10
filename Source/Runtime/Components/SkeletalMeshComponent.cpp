@@ -5,6 +5,7 @@
 #include "Engine/Classes/Animation/AnimInstance.h"
 #include "Engine/Classes/Animation/AnimNodeBase.h"
 #include "Core/Stats/EditorStats.h"
+#include "GameFramework/Actor.h"
 
 #include <utility>
 
@@ -43,11 +44,27 @@ void USkeletalMeshComponent::InitializeAnimation()
 	if (!AnimInstance || !SkeletalMesh) return;
 
 	AnimInstance->NativeInitializeAnimation();
+	AnimInstance->ConsumeRootMotion();
 	if (FAnimNode_Base* Root = AnimInstance->GetRootNode())
 	{
 		Root->Initialize(FAnimationInitializeContext(nullptr));
 		bAnimationInitialized = true;
 	}
+}
+
+void USkeletalMeshComponent::ApplyRootMotion(const FRootMotionMovementParams& RootMotion)
+{
+	if (!RootMotion.bHasRootMotion)
+		return;
+
+	AActor* Owner = GetOwner();
+	USceneComponent* RootComponent = Owner ? Owner->GetRootComponent() : nullptr;
+
+	if (!RootComponent)
+		return;
+
+	const FVector WorldDelta = ConvertLocalRootMotionToWorld(RootMotion.GetRootMotionTransform().Location);
+	RootComponent->SetWorldLocation(RootComponent->GetWorldLocation() + WorldDelta, false);
 }
 
 void USkeletalMeshComponent::TickComponent(float DeltaTime)
@@ -59,7 +76,9 @@ void USkeletalMeshComponent::TickComponent(float DeltaTime)
 
 	AnimInstance->NativeUpdateAnimation(DeltaTime);
 	FAnimNode_Base* Root = AnimInstance->GetRootNode();
-	Root->Update(FAnimationUpdateContext(nullptr, DeltaTime));
+	FAnimationUpdateContext UpdateContext(AnimInstance.get(), DeltaTime);
+	Root->Update(UpdateContext);
+	ApplyRootMotion(AnimInstance->ConsumeRootMotion());
 
 	FPoseContext Output;
 	Output.Pose.SetRefSkeleton(&SkeletalMesh->GetRefSkeleton());
@@ -68,6 +87,11 @@ void USkeletalMeshComponent::TickComponent(float DeltaTime)
 	{
 		SetBoneLocalTransform(BoneIndex, Output.Pose[BoneIndex]);
 	}
+}
+
+FVector USkeletalMeshComponent::ConvertLocalRootMotionToWorld(const FVector& LocalDelta) const
+{
+	return GetWorldMatrix().TransformVector(LocalDelta);
 }
 
 FPrimitiveSceneProxy* USkeletalMeshComponent::CreateSceneProxy()

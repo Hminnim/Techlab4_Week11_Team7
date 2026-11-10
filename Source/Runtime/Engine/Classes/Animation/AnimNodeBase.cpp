@@ -1,6 +1,11 @@
 #include "EnginePCH.h"
 #include "AnimNodeBase.h"
 
+FAnimationBaseContext::FAnimationBaseContext(UAnimInstance* InAnimInstance)
+{
+	AnimInstance = InAnimInstance;
+}
+
 void FPoseLink::Initialize(const FAnimationInitializeContext& Context)
 {
 	if(LinkedNode)
