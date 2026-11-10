@@ -58,6 +58,14 @@ struct FCompactPose
 	inline FTransform& operator[](const int32 BoneIndex) { return Bones[BoneIndex]; }
 	inline const FTransform& operator[] (const int32 BoneIndex) const { return Bones[BoneIndex]; }
 
+	void NormalizeRotations()
+	{
+		for(FTransform& Bone : this->Bones)
+		{
+			//TODO : Normalize
+		}
+	}
+
 protected:
 	TArray<FTransform> Bones;							// Bone별 로컬 트랜스폼
 	const FReferenceSkeleton* RefSkeleton = nullptr;	// 해당 포즈의 스켈레톤 포인터

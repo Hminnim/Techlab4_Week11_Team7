@@ -71,7 +71,7 @@ protected:
 UCLASS()
 class UAnimSequence : public UAnimSequenceBase
 {
-	GENERATED_BODY()
+	GENERATED_BODY();
 
 public:
 	virtual void GetAnimationPose(FCompactPose& OutPose, const FAnimExtractContext& ExtractionContext) const override;

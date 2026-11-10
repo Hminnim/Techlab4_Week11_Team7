@@ -48,3 +48,38 @@ void FAnimationRuntime::BlendTwoPosesTogether(const FCompactPose& SourcePose1, c
 		ResultPose[BoneIndex] = TempAtoms[BoneIndex].ToTransform();
 	}
 }
+
+void FAnimationRuntime::BlendPosesTogether(const TArray<FCompactPose>& SourcePoses, const TArray<FBlendedCurve>& SourceCurves, const TArray<float>& SourceWeights, FCompactPose& ResultPose, FBlendedCurve& ResultCurve)
+{
+	const int32 NumPoses = SourcePoses.Num();
+	if(NumPoses == 0)
+	{
+		ResultPose.ResetToRefPose();
+		return;
+	}
+
+	ResultPose.SetRefSkeleton(SourcePoses[0].GetRefSkeleton());
+	
+	if(NumPoses == 1)
+	{
+		ResultPose = SourcePoses[0];
+		if(SourceCurves.Num() > 0) ResultCurve = SourceCurves[0];
+		return;
+	}
+	const int32 NumBones = ResultPose.GetNumBones();
+	TArray<FBoneTransform> TempAtoms;
+	TempAtoms.SetNum(NumBones);
+	
+	BlendPose<ETransformBlendMode::Overwrite>(SourcePoses[0], TempAtoms, SourceWeights[0]);
+	
+	for(int32 PoseIndex = 1; PoseIndex < NumPoses; ++PoseIndex)
+	{
+		BlendPose<ETransformBlendMode::Accumulate>(SourcePoses[PoseIndex], TempAtoms, SourceWeights[PoseIndex]);
+	}
+	
+	for(int32 BoneIndex = 0; BoneIndex < NumBones; ++BoneIndex)
+	{
+		TempAtoms[BoneIndex].NormalizeRotation();
+		ResultPose[BoneIndex] = TempAtoms[BoneIndex].ToTransform();
+	}
+}

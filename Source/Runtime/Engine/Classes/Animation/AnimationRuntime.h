@@ -41,4 +41,6 @@ class FAnimationRuntime
 {
 public:
 	static void BlendTwoPosesTogether(const FCompactPose& SourcePose1, const FCompactPose& SourcePose2, const FBlendedCurve& SourceCurve1, const FBlendedCurve& SourceCurve2, const float WeightOfPose1, FCompactPose& ResultPose, FBlendedCurve& ResultCurve);
+
+	static void BlendPosesTogether(const TArray<FCompactPose>& SourcePoses, const TArray<FBlendedCurve>& SourceCurves, const TArray<float>& SourceWeights, FCompactPose& ResultPose, FBlendedCurve& ResultCurve);
 };
