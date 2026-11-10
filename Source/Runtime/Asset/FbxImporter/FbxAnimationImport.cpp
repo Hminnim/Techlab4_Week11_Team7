@@ -47,6 +47,54 @@ namespace
 		const size_t Bar = FullName.find_last_of('|');
 		return Bar == FString::npos ? FullName : FullName.substr(Bar + 1);
 	}
+
+	bool IsNearlyConstant(const TArray<FVector3f>& Keys, float MaxDiff)
+	{
+		const FVector3f& FirstKey = Keys[0];
+		
+		for (uint32 i = 1; i < Keys.Num(); ++i)
+		{
+			if ((Keys[i] - FirstKey).Size() > MaxDiff)
+				return false;
+		}
+
+		return true;
+	}
+
+	bool IsNearlyConstant(const TArray<FQuat4f>& Keys, float MaxAngleRadians)
+	{
+		const FQuat4f& FirstKey = Keys[0];
+		
+		for (int32 i = 1; i < Keys.Num(); ++i)
+		{
+			const FQuat4f& Current = Keys[i];
+			const float Sign = FirstKey.Dot(Current) < 0.0f ? -1.0f : 1.0f;
+			const FQuat4f D = FirstKey - Current * Sign;
+			const float HalfChord = std::sqrt(D.X * D.X + D.Y * D.Y + D.Z * D.Z + D.W * D.W) * 0.5f;
+			const float DiffAngle = 4.0f * std::asin(std::min(HalfChord, 1.0f));
+
+			if (DiffAngle > MaxAngleRadians)
+				return false;
+		}
+
+		return true;
+	}
+
+	void CompressConstantKeys(FRawAnimSequenceTrack& Track)
+	{
+		constexpr float MaxPosScaleDiff = 1e-6f;
+		constexpr float MaxRotDiff = 1e-6f;
+		const TArray<FQuat4f>& RotKeys = Track.RotKeys;
+
+		if (Track.PosKeys.Num() > 1 && IsNearlyConstant(Track.PosKeys, MaxPosScaleDiff))
+			Track.PosKeys.SetNum(1);
+
+		if (Track.ScaleKeys.Num() > 1 && IsNearlyConstant(Track.ScaleKeys, MaxPosScaleDiff))
+			Track.ScaleKeys.SetNum(1);
+
+		if (Track.RotKeys.Num() > 1 && IsNearlyConstant(Track.RotKeys, MaxRotDiff))
+			Track.RotKeys.SetNum(1);
+	}
 }
 
 bool FFbxImporter::LoadAnimations(const FString& Path, TArray<FAnimSequenceImportData>& OutAnimations, FString& OutError)
@@ -162,6 +210,11 @@ bool FFbxImporter::LoadAnimations(const FString& Path, TArray<FAnimSequenceImpor
 				InternalTrack.RotKeys.Add(Key.Rotation.Quaternion());
 				InternalTrack.ScaleKeys.Add(Key.Scale);
 			}
+		}
+
+		for (FBoneAnimationTrack& Track : Imported.Tracks)
+		{
+			CompressConstantKeys(Track.InternalTrack);
 		}
 
 		ImportedAnimations.Add(std::move(Imported));
