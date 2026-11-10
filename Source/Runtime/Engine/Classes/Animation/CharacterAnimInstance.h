@@ -1,6 +1,7 @@
 #pragma once
 
 #include "AnimInstance.h"
+#include "AnimNode_BlendSpacePlayer.h"
 #include "AnimNode_StateMachine.h"
 #include "CharacterAnimInstance.generated.h"
 
@@ -20,9 +21,9 @@ class UCharacterAnimInstance : public UAnimInstance
 	GENERATED_BODY()
 
 public:
-	// 이미 로드된 클립으로 구성한다. Idle은 반복, Attack과 Hit은 한 번 재생한다.
+	// BlendSpace가 없으면 Idle을 반복한다. Attack과 Hit은 한 번 재생한다.
 	bool ConfigureAnimations(UAnimSequence* Idle, UAnimSequence* Attack, UAnimSequence* Hit,
-		const FCharacterJumpClips& Jump = {});
+		const FCharacterJumpClips& Jump = {}, TUniquePtr<FAnimNode_BlendSpacePlayer> BlendSpace = nullptr);
 	bool ConfigureGraph(FAnimNode_StateMachine&& Graph);
 
 	// 초기화 전에 한 번 호출한다. 노드는 이 인스턴스가 소유하며, 완료 조건은 실제 재생 노드에서 읽는다.
@@ -55,6 +56,7 @@ private:
 	};
 
 	FAnimNode_StateMachine StateMachine;
+	FAnimNode_BlendSpacePlayer* LocomotionBlendSpace = nullptr;
 	std::function<bool(bool)> AttackTransitionRule;
 	int32 HitState = -1;
 	int32 JumpFromState = -1;
