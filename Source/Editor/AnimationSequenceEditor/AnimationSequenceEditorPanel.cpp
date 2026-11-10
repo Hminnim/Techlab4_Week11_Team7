@@ -105,9 +105,25 @@ void FAnimationSequenceEditorPanel::OnRender()
 	{
 		ImGui::Checkbox("Grid", &bRenderGrid);
 		DrawSequenceInfo();
-		DrawPlaybackControls();
-		ImGui::Separator();
-		DrawViewport();
+
+		const ImGuiStyle& Style = ImGui::GetStyle();
+		const float AvailableHeight = ImGui::GetContentRegionAvail().y;
+		const float TimelineHeight = std::clamp(AvailableHeight * 0.35f, 110.0f, 220.0f);
+		const float TransportHeight = ImGui::GetFrameHeightWithSpacing() * 2.0f + Style.WindowPadding.y * 2.0f;
+		const float PreviewHeight = std::max(1.0f, AvailableHeight - TimelineHeight - TransportHeight - Style.ItemSpacing.y * 2.0f);
+		const ImGuiWindowFlags ChildFlags = ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse;
+
+		if (ImGui::BeginChild("##AnimationPreview", { 0.0f, PreviewHeight }, ImGuiChildFlags_Borders, ChildFlags))
+			DrawViewport();
+		ImGui::EndChild();
+
+		if (ImGui::BeginChild("##AnimationTimeline", { 0.0f, TimelineHeight }, ImGuiChildFlags_Borders, ChildFlags))
+			DrawAnimationTimeline();
+		ImGui::EndChild();
+
+		if (ImGui::BeginChild("##AnimationTransport", { 0.0f, TransportHeight }, ImGuiChildFlags_Borders, ChildFlags))
+			DrawPlaybackControls();
+		ImGui::EndChild();
 	}
 
 	ImGui::End();
@@ -137,6 +153,7 @@ bool FAnimationSequenceEditorPanel::OpenAsset(UAnimSequence* InSequence, USkelet
 	EditSequence = InSequence;
 	bPlaying = false;
 	SetPreviewTime(0.0f);
+	bFitTimeline = true;
 
 	const FBox Bounds = PreviewMeshComponent->CalcBounds();
 	ViewportClient.FocusBounds(Bounds);
@@ -148,36 +165,189 @@ bool FAnimationSequenceEditorPanel::OpenAsset(UAnimSequence* InSequence, USkelet
 
 void FAnimationSequenceEditorPanel::DrawPlaybackControls()
 {
-	if (!EditSequence) return;
+	if (!EditSequence)
+	{
+		ImGui::TextDisabled("Open an animation from the Content Drawer.");
+		return;
+	}
 	const float Length = EditSequence->GetPlayLength();
 	if (!std::isfinite(Length) || Length < 0.0f) return;
+	if (!ImGui::BeginTable("##PlaybackControls", 2, ImGuiTableFlags_SizingStretchSame)) return;
 
-	if (ImGui::Button("Go To Start"))
+	ImGui::TableNextColumn();
+	if (ImGui::Button("|<"))
 	{
 		bPlaying = false;
 		SetPreviewTime(0.0f);
 	}
+	if (ImGui::IsItemHovered()) ImGui::SetTooltip("Go to start");
 	ImGui::SameLine();
-	if (ImGui::Button("Previous Frame")) StepFrame(-1);
+	if (ImGui::Button("<")) StepFrame(-1);
+	if (ImGui::IsItemHovered()) ImGui::SetTooltip("Previous frame");
 	ImGui::SameLine();
 	ImGui::BeginDisabled(Length <= 0.0f);
-	if (ImGui::Button(bPlaying ? "Pause" : "Play")) TogglePlayback();
+	if (ImGui::Button(bPlaying ? "Pause" : "Play", { 55.0f, 0.0f })) TogglePlayback();
 	ImGui::EndDisabled();
 	ImGui::SameLine();
-	if (ImGui::Button("Next Frame")) StepFrame(+1);
+	if (ImGui::Button(">")) StepFrame(+1);
+	if (ImGui::IsItemHovered()) ImGui::SetTooltip("Next frame");
+	ImGui::SameLine();
+	if (ImGui::Button(">|"))
+	{
+		bPlaying = false;
+		SetPreviewTime(Length);
+	}
+	if (ImGui::IsItemHovered()) ImGui::SetTooltip("Go to end");
 
+	ImGui::TableNextColumn();
 	ImGui::Checkbox("Loop", &bLooping);
-	ImGui::SliderFloat("Speed", &PlayRate, 0.1f, 4.0f, "%.2fx", ImGuiSliderFlags_AlwaysClamp);
+	ImGui::SameLine();
+	ImGui::SetNextItemWidth(70.0f);
+	ImGui::DragFloat("Speed", &PlayRate, 0.05f, 0.1f, 4.0f, "%.2fx", ImGuiSliderFlags_AlwaysClamp);
 
+	ImGui::TableNextColumn();
+	ImGui::SetNextItemWidth(100.0f);
 	float EditedTime = CurrentTime;
 	const bool bInputChanged = ImGui::InputFloat("Time (sec)", &EditedTime, 0.01f, 0.1f, "%.3f");
 	if (ImGui::IsItemActivated() || bInputChanged) bPlaying = false;
 	if (bInputChanged) SetPreviewTime(EditedTime);
 
-	EditedTime = CurrentTime;
-	const bool bSliderChanged = ImGui::SliderFloat("Position", &EditedTime, 0.0f, Length, "%.3f sec", ImGuiSliderFlags_AlwaysClamp);
-	if (ImGui::IsItemActivated() || bSliderChanged) bPlaying = false;
-	if (bSliderChanged) SetPreviewTime(EditedTime);
+	ImGui::TableNextColumn();
+	if (ImGui::Button("Fit")) bFitTimeline = true;
+	if (ImGui::IsItemHovered()) ImGui::SetTooltip("Fit the entire animation in the timeline");
+	ImGui::SameLine();
+	const double FPS = EditSequence->GetSamplingFrameRate().AsDecimal();
+	if (std::isfinite(FPS) && FPS > 0.0)
+		ImGui::Text("Frame %.0f / %d", std::round(CurrentTime * FPS), std::max(0, EditSequence->GetNumberOfSampledKeys() - 1));
+	ImGui::EndTable();
+}
+
+void FAnimationSequenceEditorPanel::DrawAnimationTimeline()
+{
+	if (!EditSequence)
+	{
+		ImGui::TextDisabled("No animation sequence selected.");
+		return;
+	}
+	const float Length = EditSequence->GetPlayLength();
+	const double FPS = EditSequence->GetSamplingFrameRate().AsDecimal();
+	if (!std::isfinite(Length) || Length <= 0.0f || !std::isfinite(FPS) || FPS <= 0.0)
+	{
+		ImGui::TextDisabled("No timeline range available.");
+		return;
+	}
+
+	const ImVec2 Origin = ImGui::GetCursorScreenPos();
+	const ImVec2 Size = ImGui::GetContentRegionAvail();
+	const float LabelWidth = std::min(160.0f, Size.x * 0.3f);
+	constexpr float RulerHeight = 26.0f;
+	constexpr float HeaderHeight = 24.0f;
+	constexpr float LaneHeight = 40.0f;
+	if (Size.x <= LabelWidth + 16.0f || Size.y < RulerHeight + HeaderHeight + LaneHeight) return;
+
+	const ImVec2 AxisMin{ Origin.x + LabelWidth, Origin.y };
+	const ImVec2 AxisMax{ Origin.x + Size.x, Origin.y + Size.y };
+	const float AxisWidth = AxisMax.x - AxisMin.x;
+	const float FitScale = AxisWidth / Length;
+	if (bFitTimeline)
+	{
+		TimelineView.StartTime = 0.0f;
+		TimelineView.PixelsPerSecond = FitScale;
+		bFitTimeline = false;
+	}
+	TimelineView.PixelsPerSecond = std::max(TimelineView.PixelsPerSecond, FitScale);
+
+	ImGui::SetCursorScreenPos(AxisMin);
+	ImGui::InvisibleButton("##AnimationTimelineInput", { AxisWidth, Size.y });
+	const ImGuiIO& IO = ImGui::GetIO();
+	if (ImGui::IsItemHovered())
+	{
+		if (IO.KeyCtrl && IO.MouseWheel != 0.0f)
+			TimelineView.ZoomAt(IO.MouseWheel > 0.0f ? 1.15f : 1.0f / 1.15f, IO.MousePos.x, AxisMin.x, FitScale, FitScale * 100.0f);
+		else if (IO.KeyShift && IO.MouseWheel != 0.0f)
+			TimelineView.PanPixels(-IO.MouseWheel * 40.0f);
+	}
+	const float VisibleDuration = AxisWidth / TimelineView.PixelsPerSecond;
+	TimelineView.StartTime = std::clamp(TimelineView.StartTime, 0.0f, std::max(0.0f, Length - VisibleDuration));
+
+	if (ImGui::IsItemActive() && ImGui::IsMouseDown(ImGuiMouseButton_Left))
+	{
+		bPlaying = false;
+		const float MouseTime = TimelineView.XToTime(IO.MousePos.x, AxisMin.x);
+		SetPreviewTime(static_cast<float>(std::round(MouseTime * FPS) / FPS));
+	}
+
+	ImDrawList* Draw = ImGui::GetWindowDrawList();
+	Draw->AddRectFilled(Origin, AxisMax, IM_COL32(28, 30, 33, 255));
+	Draw->AddRectFilled(Origin, { AxisMin.x, AxisMax.y }, IM_COL32(35, 38, 42, 255));
+	Draw->AddText({ Origin.x + 6.0f, Origin.y + 5.0f }, IM_COL32(180, 180, 180, 255), "Tracks");
+	EditorTimeline::DrawRuler(Draw, TimelineView, AxisMin, { AxisMax.x, Origin.y + RulerHeight }, AxisMax.y, FPS, true, true);
+
+	const float HeaderY = Origin.y + RulerHeight;
+	const float LaneTop = HeaderY + HeaderHeight;
+	const float LaneBottom = LaneTop + LaneHeight;
+	Draw->AddRectFilled({ Origin.x, HeaderY }, { AxisMax.x, LaneTop }, IM_COL32(45, 48, 52, 255));
+	char TrackLabel[64];
+	std::snprintf(TrackLabel, sizeof(TrackLabel), "Notifies (%d)", EditSequence->Notifies.Num());
+	Draw->AddText({ Origin.x + 6.0f, HeaderY + 4.0f }, IM_COL32(220, 220, 220, 255), TrackLabel);
+	Draw->AddText({ Origin.x + 18.0f, LaneTop + 10.0f }, IM_COL32(190, 190, 190, 255), "1");
+	Draw->AddLine({ Origin.x, LaneBottom }, { AxisMax.x, LaneBottom }, IM_COL32(65, 68, 72, 255));
+	Draw->AddLine({ AxisMin.x, Origin.y }, { AxisMin.x, AxisMax.y }, IM_COL32(65, 68, 72, 255));
+
+	Draw->PushClipRect({ AxisMin.x, LaneTop }, { AxisMax.x, LaneBottom }, true);
+	DrawNotifyTrack(Draw, { AxisMin.x, LaneTop }, { AxisMax.x, LaneBottom });
+	Draw->PopClipRect();
+	EditorTimeline::DrawPlayhead(Draw, TimelineView, CurrentTime, AxisMin, AxisMax);
+}
+
+void FAnimationSequenceEditorPanel::DrawNotifyTrack(ImDrawList* Draw, const ImVec2& Min, const ImVec2& Max)
+{
+	if (EditSequence->Notifies.IsEmpty())
+	{
+		Draw->AddText({ Min.x + 8.0f, Min.y + 10.0f }, IM_COL32(130, 130, 130, 255), "No notifies");
+		return;
+	}
+	const float Length = EditSequence->GetPlayLength();
+	const float CenterY = Min.y + 12.0f;
+	const bool bCanHover = ImGui::IsItemHovered();
+	bool bTooltipShown = false;
+	for (const FAnimNotifyEvent& Notify : EditSequence->Notifies)
+	{
+		if (!std::isfinite(Notify.TriggerTime) || !std::isfinite(Notify.Duration) ||
+			Notify.TriggerTime < 0.0f || Notify.TriggerTime > Length || Notify.Duration < 0.0f) continue;
+
+		const float StartX = TimelineView.TimeToX(Notify.TriggerTime, Min.x);
+		const float EndTime = static_cast<float>(std::min(static_cast<double>(Length), static_cast<double>(Notify.TriggerTime) + Notify.Duration));
+		const float EndX = TimelineView.TimeToX(EndTime, Min.x);
+		if (Notify.Duration > 0.0f)
+		{
+			if (EndX < Min.x || StartX > Max.x) continue;
+		}
+		else if (StartX < Min.x - 6.0f || StartX > Max.x + 6.0f) continue;
+		const FString Name = Notify.NotifyName.ToString();
+		const char* Label = Name.empty() ? "(Unnamed)" : Name.c_str();
+		const ImU32 Color = IM_COL32(100, 180, 240, 255);
+		if (Notify.Duration > 0.0f)
+		{
+			const float Left = std::clamp(StartX, Min.x, Max.x - 2.0f);
+			const float Right = std::clamp(EndX, Left + 2.0f, Max.x);
+			Draw->AddRectFilled({ Left, CenterY - 7.0f }, { Right, CenterY + 7.0f }, Color, 2.0f);
+		}
+		else
+		{
+			Draw->AddQuadFilled({ StartX, CenterY - 6.0f }, { StartX + 6.0f, CenterY },
+				{ StartX, CenterY + 6.0f }, { StartX - 6.0f, CenterY }, Color);
+		}
+		Draw->AddText({ StartX + 8.0f, CenterY + 10.0f }, IM_COL32(220, 220, 220, 255), Label);
+
+		const ImVec2 HitMin{ std::max(Min.x, StartX - 6.0f), CenterY - 8.0f };
+		const ImVec2 HitMax{ std::min(Max.x, std::max(EndX, StartX + 6.0f)), CenterY + 8.0f };
+		if (bCanHover && !bTooltipShown && ImGui::IsMouseHoveringRect(HitMin, HitMax))
+		{
+			ImGui::SetTooltip("%s\nTime: %.3f sec\nDuration: %.3f sec", Label, Notify.TriggerTime, Notify.Duration);
+			bTooltipShown = true;
+		}
+	}
 }
 
 void FAnimationSequenceEditorPanel::TogglePlayback()
@@ -256,6 +426,8 @@ UWorld* FAnimationSequenceEditorPanel::ReleasePreviewWorld()
 	bPlaying = false;
 	EditSequence = nullptr;
 	CurrentTime = 0.0f;
+	TimelineView = {};
+	bFitTimeline = true;
 	PreviewMeshComponent = nullptr;
 
 	UWorld* ReleasedWorld = PreviewWorld;

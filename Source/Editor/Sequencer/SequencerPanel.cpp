@@ -440,35 +440,21 @@ void FSequencerPanel::DrawTimeline()
 	{
 		if (IO.KeyCtrl)
 		{
-			const float MouseTime = XToTime(IO.MousePos.x, TimelineX);
-			PixelsPerSecond = std::clamp(PixelsPerSecond * (IO.MouseWheel > 0.0f ? 1.15f : 1.0f / 1.15f), 10.0f, 2000.0f);
-			ViewStart = MouseTime - (IO.MousePos.x - TimelineX) / PixelsPerSecond;
+			TimelineView.ZoomAt(IO.MouseWheel > 0.0f ? 1.15f : 1.0f / 1.15f, IO.MousePos.x, TimelineX, 10.0f, 2000.0f);
 		}
 		else if (IO.KeyShift)
 		{
-			ViewStart -= IO.MouseWheel * 40.0f / PixelsPerSecond;
+			TimelineView.PanPixels(-IO.MouseWheel * 40.0f);
 		}
-		ViewStart = std::max(ViewStart, 0.0f);
+		TimelineView.StartTime = std::max(TimelineView.StartTime, 0.0f);
 	}
 
 	TArray<FRow> Rows;
 	BuildRows(Rows);
 
 	// 눈금자
-	Draw->AddRectFilled({ TimelineX, Origin.y }, { EndX, Origin.y + RulerHeight }, IM_COL32(40, 44, 48, 255));
-	const float Steps[] = { 1.0f / 30.0f, 0.1f, 0.25f, 0.5f, 1.0f, 2.0f, 5.0f, 10.0f, 30.0f };
-	float Step = Steps[IM_ARRAYSIZE(Steps) - 1];
-	for (float Candidate : Steps)
-		if (Candidate * PixelsPerSecond >= 60.0f) { Step = Candidate; break; }
-	for (float T = std::floor(ViewStart / Step) * Step; TimeToX(T, TimelineX) < EndX; T += Step)
-	{
-		const float X = TimeToX(T, TimelineX);
-		if (X < TimelineX) continue;
-		Draw->AddLine({ X, Origin.y + RulerHeight - 6.0f }, { X, Origin.y + RulerHeight }, IM_COL32(150, 150, 150, 255));
-		char Label[16];
-		std::snprintf(Label, sizeof(Label), "%.2f", T);
-		Draw->AddText({ X + 3.0f, Origin.y + 3.0f }, IM_COL32(190, 190, 190, 255), Label);
-	}
+	EditorTimeline::DrawRuler(Draw, TimelineView, { TimelineX, Origin.y }, { EndX, Origin.y + RulerHeight },
+		Origin.y + RulerHeight, MovieScene->GetDisplayRate().AsDecimal(), false);
 	ImGui::SetCursorScreenPos({ TimelineX, Origin.y });
 	ImGui::InvisibleButton("##Ruler", { EndX - TimelineX, RulerHeight });
 	if (ImGui::IsItemActive())
@@ -636,9 +622,8 @@ void FSequencerPanel::DrawTimeline()
 	const float Bottom = RowsTop + Rows.Num() * RowHeight;
 	const float LengthX = TimeToX(Length, TimelineX);
 	if (LengthX < EndX) Draw->AddRectFilled({ std::max(LengthX, TimelineX), RowsTop }, { EndX, std::max(Bottom, RowsTop + 40.0f) }, IM_COL32(0, 0, 0, 90));
-	const float PlayX = TimeToX(GetPlayheadSeconds(), TimelineX);
-	if (PlayX >= TimelineX && PlayX <= EndX)
-		Draw->AddLine({ PlayX, Origin.y }, { PlayX, std::max(Bottom, RowsTop + 40.0f) }, ColorPlayhead, 2.0f);
+	EditorTimeline::DrawPlayhead(Draw, TimelineView, GetPlayheadSeconds(),
+		{ TimelineX, Origin.y }, { EndX, std::max(Bottom, RowsTop + 40.0f) }, ColorPlayhead, false);
 
 	// 선택한 키 Delete
 	if (ImGui::IsWindowFocused() && ImGui::IsKeyPressed(ImGuiKey_Delete) && SelectedKey >= 0)

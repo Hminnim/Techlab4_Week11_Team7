@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Editor/EditorUI/EditorPanel.h"
+#include "Editor/EditorUI/EditorTimeline.h"
 #include "Editor/Viewports/EditorViewportClient.h"
 #include "Editor/Settings/SettingsPanel.h"
 
@@ -36,6 +37,8 @@ private:
 
 	void DrawSequenceInfo();
 	void DrawPlaybackControls();
+	void DrawAnimationTimeline();
+	void DrawNotifyTrack(ImDrawList* Draw, const ImVec2& Min, const ImVec2& Max);
 	void TogglePlayback();
 	void StepFrame(int32 Direction);
 	void SetPreviewTime(float NewTime);
@@ -55,6 +58,8 @@ private:
 	bool bPlaying = false;
 	bool bLooping = true;
 	float PlayRate = 1.0f;
+	EditorTimeline::FView TimelineView;
+	bool bFitTimeline = true;
 
 	FEditorViewportClient ViewportClient;
 };
