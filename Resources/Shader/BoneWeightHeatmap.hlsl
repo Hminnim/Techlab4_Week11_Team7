@@ -37,13 +37,17 @@ PS_INPUT mainVS(VS_INPUT Input, uint VertexID : SV_VertexID)
 {
     // 위치 변형은 일반 GPU 스키닝과 동일하다. Weight는 변형 전후에 바뀌지 않는다.
     ApplySkinning(VertexID, Input.Position, Input.Normal, Input.Tangent, false);
-    FSkinWeightInfo Influences = SkinWeights[VertexID];
     float Weight = 0.0f;
-    [unroll]
-    for (uint Index = 0; Index < 4; ++Index)
+    // 배경 클릭으로 본 선택이 풀려도 Heatmap을 유지하고 Weight 0의 보라색을 표시한다.
+    if (SelectedBoneIndex >= 0)
     {
-        if (Influences.InfluenceBones[Index] == SelectedBoneIndex)
-            Weight += Influences.InfluenceWeights[Index];
+        FSkinWeightInfo Influences = SkinWeights[VertexID];
+        [unroll]
+        for (uint Index = 0; Index < 4; ++Index)
+        {
+            if (Influences.InfluenceBones[Index] == SelectedBoneIndex)
+                Weight += Influences.InfluenceWeights[Index];
+        }
     }
 
     PS_INPUT Output;

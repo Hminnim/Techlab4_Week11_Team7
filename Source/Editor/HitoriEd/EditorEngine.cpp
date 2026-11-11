@@ -854,8 +854,9 @@ void UEditorEngine::RenderSkeletalMeshPreview()
 
 	FSceneRenderOptions Options;
 	BuildSceneRenderOptions(PreviewClient, false, Options);
+	Options.bShowBoneWeight = SkeletalMeshEditorPanel->IsBoneWeightEnabled();
 	Options.BoneWeightBoneIndex = SkeletalMeshEditorPanel->GetBoneWeightBoneIndex();
-	if (Options.BoneWeightBoneIndex >= 0)
+	if (Options.bShowBoneWeight)
 		Options.LightingModel = ELightingModel::Unlit; // Weight 표시에는 조명과 그림자 준비가 필요 없다.
 
 	const FSceneView SceneView = PreviewClient->CalcSceneView();

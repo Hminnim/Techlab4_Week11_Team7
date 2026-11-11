@@ -18,7 +18,9 @@ struct FSceneRenderOptions
 	bool bShowCascade = false;
 	bool bShowShadowMask = false;   // 언리얼 구조 그림자의 ScreenShadowMask를 화면에 띄운다 (Deferred)
 	bool bShowWorldNormal = false;
-	// SkeletalMesh Viewer 전용. -1이면 기존 렌더링, 0 이상이면 해당 본의 Weight를 표시한다.
+	// SkeletalMesh Viewer 전용. 선택된 본이 없어도 표시 모드는 유지한다.
+	bool bShowBoneWeight = false;
+	// -1이면 선택 없음(Weight 0), 0 이상이면 해당 본의 Weight를 표시한다.
 	int32 BoneWeightBoneIndex = -1;
 	bool bShowLightCulling = false;	
 	float SceneDepthRange = 1.0f;

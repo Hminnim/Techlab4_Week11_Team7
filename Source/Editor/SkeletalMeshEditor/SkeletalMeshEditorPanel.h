@@ -33,7 +33,8 @@ public:
 	bool OpenAsset(const FString& Path);
 	const FSkeletalPose& GetPreviewPose() const { return PreviewPose; }
 	int32 GetSelectedBoneIndex() const { return SelectedBoneIndex; }
-	// Heatmap을 그릴 수 없으면 -1을 반환해 일반 프리뷰 경로를 사용한다.
+	// 표시 모드는 본 선택과 독립적이다. 선택이 없으면 Heatmap을 보라색으로 유지한다.
+	bool IsBoneWeightEnabled() const;
 	int32 GetBoneWeightBoneIndex() const;
 
 private:

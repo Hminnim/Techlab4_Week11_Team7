@@ -372,10 +372,15 @@ void FSkeletalMeshEditorPanel::TickShortcut()
 	}
 }
 
+bool FSkeletalMeshEditorPanel::IsBoneWeightEnabled() const
+{
+	return bShowBoneWeight && USkeletalMeshComponent::IsGPUSkinningEnabled() &&
+		PreviewMeshComponent && PreviewMeshComponent->GetSkeletalMesh();
+}
+
 int32 FSkeletalMeshEditorPanel::GetBoneWeightBoneIndex() const
 {
-	if (!bShowBoneWeight || !USkeletalMeshComponent::IsGPUSkinningEnabled() ||
-		!PreviewMeshComponent || !PreviewMeshComponent->GetSkeletalMesh() ||
+	if (!IsBoneWeightEnabled() ||
 		SelectedBoneIndex < 0 || SelectedBoneIndex >= ReferenceSkeleton.RawRefBoneInfo.Num())
 		return -1;
 	return SelectedBoneIndex;
@@ -391,7 +396,7 @@ void FSkeletalMeshEditorPanel::DrawViewport()
 			ImGui::Text("Bone Weight: %s | 0 Purple > Blue > Green > Yellow > Red 1",
 				ReferenceSkeleton.RawRefBoneInfo[BoneIndex].Name.ToString().c_str());
 		else
-			ImGui::TextDisabled("Select a bone to view its weights.");
+			ImGui::TextDisabled("No bone selected: Weight 0 (Purple).");
 	}
 
 	const ImVec2 ViewportSize = ImGui::GetContentRegionAvail();

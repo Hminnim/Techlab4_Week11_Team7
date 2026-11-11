@@ -568,16 +568,65 @@ bool FSceneRenderer::AddWorldNormalPass(FRenderGraphBuilder& Graph, FRenderer* R
 		});
 }
 
+bool FSceneRenderer::AddToneMapPass(FRenderGraphBuilder& Graph, FRenderer* Renderer,
+	FRenderGraphTextureRef HDRColor, FRenderGraphTextureRef SceneColor, const FSceneRenderOptions& Options)
+{
+	FRenderGraphRasterPassDesc ToneMap{};
+	ToneMap.Name = "ToneMap";
+	ToneMap.ReadTextures = { HDRColor };
+	ToneMap.ColorAttachments = { { SceneColor, ERenderGraphLoadAction::Clear, { 0.0f, 0.0f, 0.0f, 1.0f } } };
+	return Graph.AddRasterPass(std::move(ToneMap),
+		[this, Renderer, bGamma = Options.bGammaCorrection, DisplayGamma = Options.DisplayGamma]
+		{
+			if (bCorePassSucceeded)
+			{
+				if (FPipelineState* Pipeline = FRenderResourceManager::GetPSO(EPSOType::ToneMap);
+					Pipeline && Pipeline->Shader && Pipeline->Shader->VertexShader && Pipeline->Shader->PixelShader)
+				{
+					FToneMapData Data{};
+					Data.InvGamma = 1.0f / std::max(DisplayGamma, 0.01f);
+					Data.bGammaCorretion = bGamma ? 1.0f : 0.0f;
+					FConstantBuffer* Constants = Renderer->GetToneMapConstants();
+					RenderCommand::UpdateBufferData(Constants, &Data, sizeof(Data));
+
+					RenderCommand::BindPipelineState(*Pipeline);
+					RenderCommand::BindConstantBuffer(0, Constants, EShaderBindFlagBits::Pixel);
+					RenderCommand::BindVertexBuffer(nullptr);
+					RenderCommand::Draw(3);
+				}
+			}
+		});
+}
+
 bool FSceneRenderer::AddBoneWeightPass(FRenderGraphBuilder& Graph, FRenderer* Renderer,
-	FSceneViewTargets& Targets, const FSceneRenderOptions& Options)
+	FSceneViewTargets& Targets, const FSceneRenderOptions& Options, FSkyboxRenderer* Skybox)
 {
 	const FRenderGraphTextureRef SceneColor = Graph.ImportTexture(Targets.SceneColor.get(), "SceneColor");
 	const FRenderGraphTextureRef Depth = Graph.ImportTexture(Targets.Depth.get(), "SceneDepth");
 	if (!SceneColor || !Depth) return false;
 
+	// 일반 보기와 같은 HDR 배경을 먼저 준비한다. Heatmap 색은 톤매핑 후에 직접 그린다.
+	const FRenderGraphTextureDesc BackgroundDesc{ Targets.SceneColor->GetWidth(),
+		Targets.SceneColor->GetHeight(), ETextureFormat::R16G16B16A16_Float };
+	const FRenderGraphTextureRef BackgroundHDR = Graph.CreateTexture(BackgroundDesc, "BoneWeightBackgroundHDR");
+	if (!BackgroundHDR) return false;
+
+	FRenderGraphRasterPassDesc Background{};
+	Background.Name = "BoneWeightBackground";
+	Background.ColorAttachments = {
+		{ BackgroundHDR, ERenderGraphLoadAction::Clear, { 0.0f, 0.0f, 0.0f, 1.0f } }
+	};
+	if (!Graph.AddRasterPass(std::move(Background), [this, Skybox]
+		{
+			if (bCorePassSucceeded && Skybox)
+				Skybox->OnRender(View.ViewProjectionMatrix, View.ViewLocation);
+		})) return false;
+	if (!AddToneMapPass(Graph, Renderer, BackgroundHDR, SceneColor, Options)) return false;
+
 	FRenderGraphRasterPassDesc Pass{};
 	Pass.Name = "BoneWeightHeatmap";
-	Pass.ColorAttachments = { { SceneColor, ERenderGraphLoadAction::Clear, { 0.0f, 0.0f, 0.0f, 1.0f } } };
+	// 배경 색상은 유지하고, 깊이를 쓰지 않는 Skybox 위에 메시 깊이만 새로 기록한다.
+	Pass.ColorAttachments = { { SceneColor, ERenderGraphLoadAction::Load } };
 	Pass.DepthAttachment = { Depth, ERenderGraphLoadAction::Clear, 1.0f, 0 };
 	return Graph.AddRasterPass(std::move(Pass),
 		[this, Renderer, bDrawPrimitives = Options.bDrawPrimitives, BoneIndex = Options.BoneWeightBoneIndex]
@@ -613,8 +662,8 @@ bool FSceneRenderer::AddCorePasses(FRenderGraphBuilder& Graph, FRenderer* Render
 
 	bCorePassSucceeded = true;
 	bTilesBuilt = false;
-	if (Options.BoneWeightBoneIndex >= 0)
-		return AddBoneWeightPass(Graph, Renderer, Targets, Options);
+	if (Options.bShowBoneWeight)
+		return AddBoneWeightPass(Graph, Renderer, Targets, Options, Skybox);
 	if (Options.bShowWorldNormal)
 		return AddWorldNormalPass(Graph, Renderer, Targets, Options);
 
@@ -911,32 +960,7 @@ bool FSceneRenderer::AddCorePasses(FRenderGraphBuilder& Graph, FRenderer* Render
 		return false;
 	}
 
-	FRenderGraphRasterPassDesc ToneMap{};
-	ToneMap.Name = "ToneMap";
-	ToneMap.ReadTextures = { LightingHDR };
-	ToneMap.ColorAttachments = { { SceneColor, ERenderGraphLoadAction::Clear, { 0.0f, 0.0f, 0.0f, 1.0f } } };
-	if (!Graph.AddRasterPass(std::move(ToneMap), [this, Renderer, &Graph, LightingHDR, bGamma = Options.bGammaCorrection, DisplayGamma = Options.DisplayGamma]
-		{
-			if (bCorePassSucceeded)
-			{
-				if (FPipelineState* Pipeline = FRenderResourceManager::GetPSO(EPSOType::ToneMap);
-					Pipeline && Pipeline->Shader && Pipeline->Shader->VertexShader && Pipeline->Shader->PixelShader)
-				{
-					FToneMapData Data{};
-					Data.InvGamma = 1.0f / std::max(DisplayGamma, 0.01f);
-					Data.bGammaCorretion = bGamma ? 1.0f : 0.0f;
-					FConstantBuffer* Constants = Renderer->GetToneMapConstants();
-					RenderCommand::UpdateBufferData(Constants, &Data, sizeof(Data));
-
-					RenderCommand::BindPipelineState(*Pipeline);
-					RenderCommand::BindConstantBuffer(0, Constants, EShaderBindFlagBits::Pixel);
-					RenderCommand::BindVertexBuffer(nullptr);
-					RenderCommand::Draw(3);
-				}
-			}
-		})) return false;
-
-	return true;
+	return AddToneMapPass(Graph, Renderer, LightingHDR, SceneColor, Options);
 }
 
 bool FSceneRenderer::AddViewportPasses(FRenderGraphBuilder& Graph, FRenderer* Renderer,
@@ -944,7 +968,7 @@ bool FSceneRenderer::AddViewportPasses(FRenderGraphBuilder& Graph, FRenderer* Re
 	const FScenePassCallbacks& Callbacks) // 뷰포트에 그려져야 되는 패스들을 옵션에 따라 정해진 순서로 Graph에 등록
 {
 	// 표면 값 디버그 뷰는 색을 직접 출력하고, 본/기즈모 등 에디터 오버레이만 유지한다.
-	const bool bSurfaceDebugView = Options.bShowWorldNormal || Options.BoneWeightBoneIndex >= 0;
+	const bool bSurfaceDebugView = Options.bShowWorldNormal || Options.bShowBoneWeight;
 	FSceneRenderOptions CoreOptions = Options;
 	if (Options.bShowLightCulling)
 	{
@@ -1048,7 +1072,7 @@ bool FSceneRenderer::AddViewportPasses(FRenderGraphBuilder& Graph, FRenderer* Re
 	}
 
 	const FSceneOverlayCallbacks& Overlay = Callbacks.Overlays;
-	if (Options.BoneWeightBoneIndex < 0 && Options.bShowCascade && Callbacks.CascadeVisualization)
+	if (!Options.bShowBoneWeight && Options.bShowCascade && Callbacks.CascadeVisualization)
 	{
 		FRenderGraphRasterPassDesc Pass = MakeViewportPass("CascadeFloorVisualization", FinalColor);
 		Pass.ReadTextures = { Depth };
@@ -1100,7 +1124,7 @@ bool FSceneRenderer::Render(FRenderer* Renderer, FSceneViewTargets& Targets, con
 
 	FFXAARenderer* FXAA = Renderer->GetFXAA();
 	const bool bUseFXAA = Options.bEnableFXAA && !Options.bShowSceneDepth &&
-		!Options.bShowWorldNormal && Options.BoneWeightBoneIndex < 0 && FXAA && FXAA->PrepareOutput(ColorTarget);
+		!Options.bShowWorldNormal && !Options.bShowBoneWeight && FXAA && FXAA->PrepareOutput(ColorTarget);
 	if (bUseFXAA)
 	{
 		Callbacks.FXAAOutput = FXAA->GetOutputTarget().get();
