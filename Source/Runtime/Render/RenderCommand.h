@@ -40,6 +40,7 @@ public:
 
 	static TUniquePtr<FConstantBuffer> CreateConstantBuffer(uint32 BufferSize);
 	static TUniquePtr<FStructuredBuffer> CreateDynamicStructuredBuffer(uint32 Capacity, uint32 Stride);
+	static TUniquePtr<FStructuredBuffer> CreateStaticStructuredBuffer(const void* InitialData, uint32 Capacity, uint32 Stride);
 	static TUniquePtr<FStructuredBuffer> CreateRWStructuredBuffer(uint32 Stride, uint32 Count);
 
 	static TUniquePtr<FTexture2D> CreateTexture2D(const FTextureDesc& Desc, const void* InitialData = nullptr);

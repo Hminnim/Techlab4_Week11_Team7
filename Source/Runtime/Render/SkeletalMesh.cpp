@@ -3,7 +3,6 @@
 #include "Asset/AssetManager.h"
 #include "Render/Material.h"
 #include "Render/RenderCommand.h"
-#include <cstring>
 #include <utility>
 
 bool USkeletalMesh::Initialize(FSkeletalMeshData&& InMeshData, TArray<FSkeletalMaterial>&& InMaterials, TUniquePtr<FIndexBuffer> InIndexBuffer, FString& OutError)
@@ -81,15 +80,12 @@ bool USkeletalMesh::InitializeGPUResources()
 	auto NewVertexBuffer = RenderCommand::CreateStaticVertexBuffer(
 		MeshData.ReferenceVertices.GetData(),
 		static_cast<uint32>(sizeof(FVertex) * MeshData.ReferenceVertices.Num()), sizeof(FVertex));
-	auto NewWeightBuffer = RenderCommand::CreateDynamicStructuredBuffer(
-		static_cast<uint32>(MeshData.SkinWeights.Num()), sizeof(FSkinWeightInfo));
+	// Weight는 로드 후 변하지 않으므로 생성 시 한 번 업로드하고 GPU 읽기 전용으로 사용한다.
+	auto NewWeightBuffer = RenderCommand::CreateStaticStructuredBuffer(
+		MeshData.SkinWeights.GetData(), static_cast<uint32>(MeshData.SkinWeights.Num()), sizeof(FSkinWeightInfo));
 	if (!NewVertexBuffer || !NewVertexBuffer->GetBuffer() ||
 		!NewWeightBuffer || !NewWeightBuffer->GetBuffer() || !NewWeightBuffer->GetSRV()) return false;
 
-	void* Mapped = RenderCommand::MapWriteDiscard(NewWeightBuffer.get());
-	if (!Mapped) return false;
-	std::memcpy(Mapped, MeshData.SkinWeights.GetData(), sizeof(FSkinWeightInfo) * MeshData.SkinWeights.Num());
-	RenderCommand::Unmap(NewWeightBuffer.get());
 	ReferenceVertexBuffer = std::move(NewVertexBuffer);
 	SkinWeightBuffer = std::move(NewWeightBuffer);
 	return true;

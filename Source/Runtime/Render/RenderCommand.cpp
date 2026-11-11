@@ -61,6 +61,19 @@ TUniquePtr<FStructuredBuffer> RenderCommand::CreateDynamicStructuredBuffer(uint3
 	return std::make_unique<FStructuredBuffer>(RenderDevice->GetDevice(), Desc, Capacity);
 }
 
+TUniquePtr<FStructuredBuffer> RenderCommand::CreateStaticStructuredBuffer(const void* InitialData, uint32 Capacity, uint32 Stride)
+{
+	assert(RenderDevice);
+	if (!InitialData || !Capacity || !Stride || Capacity > UINT32_MAX / Stride) return nullptr;
+	D3D11_BUFFER_DESC Desc{};
+	Desc.ByteWidth = Capacity * Stride;
+	Desc.Usage = D3D11_USAGE_IMMUTABLE;
+	Desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+	Desc.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_STRUCTURED;
+	Desc.StructureByteStride = Stride;
+	return std::make_unique<FStructuredBuffer>(RenderDevice->GetDevice(), Desc, Capacity, InitialData);
+}
+
 TUniquePtr<FStructuredBuffer> RenderCommand::CreateRWStructuredBuffer(uint32 Stride, uint32 Count)
 {
 	assert(RenderDevice);
