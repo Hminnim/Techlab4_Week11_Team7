@@ -50,7 +50,9 @@
 
 #include "EditorEngine.generated.h"
 
+class FAnimationStateMachinePanel;
 class FSkeletalMeshEditorPanel;
+class FAnimationSequenceEditorPanel;
 
 inline constexpr int32 InvalidViewIndex = -1;
 
@@ -147,6 +149,7 @@ private:
 	bool IsSimulatingInEditor() const;
 
 	void RenderSkeletalMeshPreview();
+	void RenderAnimationSequencePreview();
 
 	void SetSelectedComponent(USceneComponent* Component)
 	{
@@ -185,6 +188,7 @@ private:
 	FEditorControlsPanel* EditorControlsPanel = nullptr;
 	FSettingsPanel* SettingsPanel = nullptr;
 	FSequencerPanel* SequencerPanel = nullptr;
+	FAnimationStateMachinePanel* AnimationStateMachinePanel = nullptr;
 	FViewportsPanel* ViewportsPanel = nullptr;
 	FSplitRatio ViewportSplitRatio{0.5f, 0.5f};
 	ELayoutMode ViewportLayoutMode = ELayoutMode::QuadSplit;
@@ -194,6 +198,7 @@ private:
 	FContentDrawerPanel* ContentDrawerPanel = nullptr;
 	FUIEditorPanel* UIEditorPanel = nullptr;
 	FSkeletalMeshEditorPanel* SkeletalMeshEditorPanel = nullptr;
+	FAnimationSequenceEditorPanel* AnimationSequenceEditorPanel = nullptr;
 
 	UWorld* EditorWorld = nullptr;
 	UWorld* PlayWorld = nullptr;

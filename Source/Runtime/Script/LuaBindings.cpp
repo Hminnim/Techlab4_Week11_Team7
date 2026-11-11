@@ -34,6 +34,7 @@
 #include "Components/AudioComponent.h"
 #include "Engine/Classes/Sound/SoundWave.h"
 #include "Engine/Classes/Animation/AnimStateMachine.h"
+#include "Engine/Classes/Animation/AnimNode_BlendSpacePlayer.h"
 #include "Engine/Classes/Animation/AnimNode_SequencePlayer.h"
 #include "Engine/Classes/Animation/CharacterAnimInstance.h"
 #include "Camera/CameraShakeBase.h"
@@ -65,6 +66,12 @@ namespace
 		uint64 Generation = 0;
 	};
 
+	struct FLuaAnimStatePlayer
+	{
+		FAnimNode_SequencePlayer* Sequence = nullptr;
+		FAnimNode_BlendSpacePlayer* BlendSpace = nullptr;
+	};
+
 	struct FLuaAnimStateMachineBinding
 	{
 		FLuaActorRef Owner;
@@ -74,7 +81,7 @@ namespace
 		FLuaComponentRef PlaybackComponent;
 		TUniquePtr<FAnimNode_StateMachine> PendingGraph;
 		uint32 InstalledInstanceId = 0;
-		TArray<FAnimNode_SequencePlayer*> StatePlayers;
+		TArray<FLuaAnimStatePlayer> StatePlayers;
 		TArray<std::function<bool()>> PlaybackRules;
 		bool bUpdating = false;
 
@@ -416,8 +423,57 @@ namespace
 		Player->SetLoopAnimation(bLoop);
 		auto* PlayerPtr = Player.get();
 		const int32 State = Binding->PendingGraph->AddState(FName(Name), std::move(Player));
-		if (State >= 0) Binding->StatePlayers.Add(PlayerPtr);
+		if (State >= 0) Binding->StatePlayers.Add({ PlayerPtr, nullptr });
 		return State;
+	}
+
+	TUniquePtr<FAnimNode_BlendSpacePlayer> LoadBlendSpacePlayer(const FString& Path, const sol::table& Samples)
+	{
+		const size_t SampleCount = Samples.size();
+		if (SampleCount == 0) return nullptr;
+
+		auto Player = MakeUnique<FAnimNode_BlendSpacePlayer>();
+		Player->BlendSpace.reset(NewObject<UBlendSpace>());
+		TSet<float> Positions;
+		for (size_t Index = 1; Index <= SampleCount; ++Index)
+		{
+			const auto Sample = Samples.get<sol::optional<sol::table>>(Index);
+			if (!Sample) throw sol::error("Blend space samples must be tables with take and x fields.");
+			const auto Take = Sample->get<sol::optional<FString>>("take");
+			const auto X = Sample->get<sol::optional<float>>("x");
+			if (!Take || Take->empty() || !X || !std::isfinite(*X) || !Positions.Add(*X))
+				throw sol::error("Each blend space sample needs a take name and a distinct, finite x value.");
+
+			FString Error;
+			UAnimSequence* Clip = UAssetManager::Get().LoadFbxAnimSequence(Path, Error, *Take);
+			if (!Clip) throw sol::error("Cannot load animation '" + Path + "': " + Error);
+			if (Clip->GetPlayLength() <= 0.0f) return nullptr;
+			Player->BlendSpace->AddSample(Clip, FVector(*X, 0.0f, 0.0f));
+		}
+		return Player;
+	}
+
+	int32 AddBlendSpaceState(const FLuaAnimStateMachineRef& Ref, const FString& Name,
+		const FString& Path, const sol::table& Samples)
+	{
+		const auto Binding = GetAnimStateMachine(Ref);
+		if (!Binding->PendingGraph) return -1;
+		auto Player = LoadBlendSpacePlayer(Path, Samples);
+		if (!Player) return -1;
+		auto* PlayerPtr = Player.get();
+		const int32 State = Binding->PendingGraph->AddState(FName(Name), std::move(Player));
+		if (State >= 0) Binding->StatePlayers.Add({ nullptr, PlayerPtr });
+		return State;
+	}
+
+	bool SetBlendSpaceInput(const FLuaAnimStateMachineRef& Ref, int32 State, float X)
+	{
+		const auto Binding = GetAnimStateMachine(Ref);
+		if (!std::isfinite(X) || !Binding->StatePlayers.IsValidIndex(State)) return false;
+		auto* Player = Binding->StatePlayers[State].BlendSpace;
+		if (!Player) return false;
+		Player->X = X;
+		return true;
 	}
 
 	bool AddLuaAnimTransition(const FLuaAnimStateMachineRef& Ref, int32 From, int32 To,
@@ -508,7 +564,7 @@ namespace
 	bool ConfigureCharacterAnimations(const FLuaActorRef& Ref,
 		const FString& IdlePath, const FString& AttackPath, const FString& HitPath,
 		sol::optional<FString> IdleTake, sol::optional<FString> AttackTake, sol::optional<FString> HitTake,
-		sol::optional<sol::table> JumpSpec)
+		sol::optional<sol::table> JumpSpec, sol::optional<sol::table> LocomotionSamples)
 	{
 		CheckCharacterAnimationMutation(Ref);
 		USkeletalMeshComponent& Component = SkeletalMeshComponentOf(Ref);
@@ -539,8 +595,15 @@ namespace
 		}
 
 		const FCharacterJumpClips Jump = JumpSpec ? FCharacterJumpClips{ Clips[3], Clips[4], Clips[5] } : FCharacterJumpClips{};
+		TUniquePtr<FAnimNode_BlendSpacePlayer> BlendSpace;
+		if (LocomotionSamples)
+		{
+			BlendSpace = LoadBlendSpacePlayer(IdlePath, *LocomotionSamples);
+			if (!BlendSpace) throw sol::error("Locomotion needs at least one sample and each clip must have a positive duration.");
+		}
+
 		TUniquePtr<UCharacterAnimInstance> Instance(NewObject<UCharacterAnimInstance>(&Component));
-		if (!Instance->ConfigureAnimations(Clips[0], Clips[1], Clips[2], Jump))
+		if (!Instance->ConfigureAnimations(Clips[0], Clips[1], Clips[2], Jump, std::move(BlendSpace)))
 		{
 			throw sol::error("Cannot configure character animations. Each clip must have a positive duration.");
 		}
@@ -557,6 +620,12 @@ namespace
 
 			"ConfigureCharacterAnimations", &ConfigureCharacterAnimations,
 			"CreateAnimGraph", &CreateAnimGraph,
+			"SetAnimSpeed", [](const FLuaActorRef& Ref, float Speed)
+			{
+				if (!std::isfinite(Speed) || Speed < 0.0f)
+					throw sol::error("Animation speed must be finite and non-negative.");
+				CharacterAnimationOf(Ref).SetSpeed(Speed);
+			},
 			"SetAnimAttackRule", &SetAnimAttackRule,
 			"RequestAnimAttack", [](const FLuaActorRef& Ref) { CharacterAnimationOf(Ref).RequestAttack(); },
 			"RequestAnimHit", [](const FLuaActorRef& Ref) { CharacterAnimationOf(Ref).RequestHit(); },
@@ -1287,6 +1356,8 @@ namespace FLuaBindings
 				return Binding->IsPlayback() ? -1 : Binding->Machine.AddState(FName(Name));
 			},
 			"AddSequenceState", &AddSequenceState,
+			"AddBlendSpaceState", &AddBlendSpaceState,
+			"SetBlendSpaceInput", &SetBlendSpaceInput,
 			"AddTransition", [](const FLuaAnimStateMachineRef& Ref, int32 From, int32 To, sol::protected_function Rule)
 			{
 				return AddLuaAnimTransition(Ref, From, To, std::move(Rule), false);
@@ -1305,8 +1376,8 @@ namespace FLuaBindings
 			{
 				const auto Binding = GetAnimStateMachine(Ref, true);
 				if (!Binding->StatePlayers.IsValidIndex(State)) return false;
-				const auto* Player = Binding->StatePlayers[State];
-				return !Player->IsLoopAnimation() && Player->GetCurrentAssetTimePlayRateAdjusted() >= Player->GetSequence()->GetPlayLength();
+				const auto* Player = Binding->StatePlayers[State].Sequence;
+				return Player && !Player->IsLoopAnimation() && Player->GetCurrentAssetTimePlayRateAdjusted() >= Player->GetSequence()->GetPlayLength();
 			},
 			"Start", &StartLuaAnimStateMachine,
 			"Update", [](const FLuaAnimStateMachineRef& Ref, float DeltaTime)

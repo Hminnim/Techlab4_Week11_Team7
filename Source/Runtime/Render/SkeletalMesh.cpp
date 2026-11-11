@@ -2,6 +2,8 @@
 #include "Render/SkeletalMesh.h"
 #include "Asset/AssetManager.h"
 #include "Render/Material.h"
+#include "Render/RenderCommand.h"
+#include <cstring>
 #include <utility>
 
 bool USkeletalMesh::Initialize(FSkeletalMeshData&& InMeshData, TArray<FSkeletalMaterial>&& InMaterials, TUniquePtr<FIndexBuffer> InIndexBuffer, FString& OutError)
@@ -66,6 +68,30 @@ bool USkeletalMesh::Initialize(FSkeletalMeshData&& InMeshData, TArray<FSkeletalM
 	MeshData = std::move(InMeshData);
 	Materials = std::move(InMaterials);
 	IndexBuffer = std::move(InIndexBuffer);
+	return true;
+}
+
+bool USkeletalMesh::InitializeGPUResources()
+{
+	if (ReferenceVertexBuffer && SkinWeightBuffer) return true;
+	if (!IndexBuffer || MeshData.ReferenceVertices.IsEmpty() || MeshData.SkinWeights.IsEmpty()) return false;
+	static_assert(sizeof(FSkinWeightInfo) == 32, "HLSL skin weight layout mismatch");
+	static_assert(sizeof(FMatrix) == 64, "HLSL bone matrix layout mismatch");
+
+	auto NewVertexBuffer = RenderCommand::CreateStaticVertexBuffer(
+		MeshData.ReferenceVertices.GetData(),
+		static_cast<uint32>(sizeof(FVertex) * MeshData.ReferenceVertices.Num()), sizeof(FVertex));
+	auto NewWeightBuffer = RenderCommand::CreateDynamicStructuredBuffer(
+		static_cast<uint32>(MeshData.SkinWeights.Num()), sizeof(FSkinWeightInfo));
+	if (!NewVertexBuffer || !NewVertexBuffer->GetBuffer() ||
+		!NewWeightBuffer || !NewWeightBuffer->GetBuffer() || !NewWeightBuffer->GetSRV()) return false;
+
+	void* Mapped = RenderCommand::MapWriteDiscard(NewWeightBuffer.get());
+	if (!Mapped) return false;
+	std::memcpy(Mapped, MeshData.SkinWeights.GetData(), sizeof(FSkinWeightInfo) * MeshData.SkinWeights.Num());
+	RenderCommand::Unmap(NewWeightBuffer.get());
+	ReferenceVertexBuffer = std::move(NewVertexBuffer);
+	SkinWeightBuffer = std::move(NewWeightBuffer);
 	return true;
 }
 

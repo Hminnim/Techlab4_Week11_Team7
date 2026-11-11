@@ -1,13 +1,11 @@
 #pragma once
 
 #include "AnimNodeBase.h"
-
-class UBlendSpace;
-struct FBlendSampleData;
+#include "BlendSpace.h"
 
 struct FAnimNode_BlendSpacePlayer : public FAnimNode_Base
 {
-	UBlendSpace* BlendSpace = nullptr;
+	TUniquePtr<UBlendSpace> BlendSpace;
 	TArray<FBlendSampleData> BlendSampleDataCache;
 
 	float X = 0.0f;

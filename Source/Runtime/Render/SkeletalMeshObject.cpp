@@ -4,14 +4,20 @@
 #include "Core/Async/TaskPool.h"
 #include "Render/Buffer.h"
 #include "Render/RenderCommand.h"
+#include "Render/SkeletalMesh.h"
 #include <algorithm>
 #include <cstring>
 
 FSkeletalMeshObject::FSkeletalMeshObject(const FSkeletalMeshData& InMeshData, FIndexBuffer* InIndexBuffer)
-	: MeshData(InMeshData), SkinnedVertices(InMeshData.ReferenceVertices),
-	  LocalBounds(InMeshData.ReferenceBounds), IndexBuffer(InIndexBuffer), SortID(NextSortID++)
+	: MeshData(InMeshData), LocalBounds(InMeshData.ReferenceBounds),
+	  IndexBuffer(InIndexBuffer), SortID(NextSortID++)
 {
 	SkinningMatrices.SetNum(MeshData.RefBasesInvMatrix.Num());
+}
+
+FSkeletalMeshObjectCPUSkin::FSkeletalMeshObjectCPUSkin(const FSkeletalMeshData& InMeshData, FIndexBuffer* InIndexBuffer)
+	: FSkeletalMeshObject(InMeshData, InIndexBuffer), SkinnedVertices(InMeshData.ReferenceVertices)
+{
 	BoneVertices.SetNum(MeshData.RefBasesInvMatrix.Num());
 	DirtyVertices.SetNum(MeshData.ReferenceVertices.Num());
 	for (int32 VertexIndex = 0; VertexIndex < MeshData.SkinWeights.Num(); ++VertexIndex)
@@ -26,20 +32,26 @@ FSkeletalMeshObject::FSkeletalMeshObject(const FSkeletalMeshData& InMeshData, FI
 }
 
 FSkeletalMeshObject::~FSkeletalMeshObject() = default;
+FSkeletalMeshObjectCPUSkin::~FSkeletalMeshObjectCPUSkin() = default;
 
-// 본 행렬로 CPU 정점과 경계를 갱신한다. GPU 전송은 UploadSkinnedVertices에서 수행한다.
+// 본 행렬 계산은 공유하고, 정점/Bounds 준비는 선택된 구현에 맡긴다.
 bool FSkeletalMeshObject::UpdateDynamicData(const TArray<FMatrix>& BoneComponentMatrices, const TArray<uint8>* DirtyBones)
 {
 	if (BoneComponentMatrices.Num() != MeshData.RefBasesInvMatrix.Num()) return false;
 	if (DirtyBones && DirtyBones->Num() != BoneComponentMatrices.Num()) return false;
-	// 新しい出力は全本のキャッシュが必要。以後は変更範囲だけを再計算する。
+	// 객체를 새로 만들면 Dirty 마스크와 관계없이 모든 본의 캐시가 필요하다.
 	if (!bSkinningInitialized) DirtyBones = nullptr;
 	BuildSkinningMatrices(BoneComponentMatrices, DirtyBones);
+	UpdateSkinning(DirtyBones);
+	bSkinningInitialized = true;
+	return true;
+}
+
+void FSkeletalMeshObjectCPUSkin::UpdateSkinning(const TArray<uint8>* DirtyBones)
+{
 	SkinVerticesCPU(DirtyBones);
 	UpdateLocalBounds();
-	bSkinningInitialized = true;
 	bVertexBufferDirty = true;
-	return true;
 }
 
 // 기준 자세의 정점을 바인드 당시 본 공간으로 옮긴 뒤, 현재 본 자세를 적용하는 행렬을 만든다.
@@ -55,7 +67,7 @@ void FSkeletalMeshObject::BuildSkinningMatrices(const TArray<FMatrix>& BoneCompo
 }
 
 // 변경 본들의 영향 정점 합집합만 계산한다. 정점마다 모든 본 Weight를 사용한다.
-void FSkeletalMeshObject::SkinVerticesCPU(const TArray<uint8>* DirtyBones)
+void FSkeletalMeshObjectCPUSkin::SkinVerticesCPU(const TArray<uint8>* DirtyBones)
 {
 	if (DirtyBones)
 	{
@@ -83,14 +95,14 @@ void FSkeletalMeshObject::SkinVerticesCPU(const TArray<uint8>* DirtyBones)
 		for (uint32 Index = Begin; Index < End; ++Index)
 		{
 			const int32 VertexIndex = bUseDirtyIndices ? DirtyVertexIndices[Index] : static_cast<int32>(Index);
-			SkinVertexCPU(VertexIndex);
+			SkinVertexCPU(VertexIndex, SkinnedVertices[VertexIndex]);
 			if (bUseDirtyIndices) DirtyVertices[VertexIndex] = 0;
 		}
 	});
 }
 
 // 정점에 연결된 본의 변환을 Weight만큼 섞어 위치·노멀·탄젠트를 계산한다.
-void FSkeletalMeshObject::SkinVertexCPU(int32 VertexIndex)
+void FSkeletalMeshObject::SkinVertexCPU(int32 VertexIndex, FVertex& Dest) const
 {
 	const FVertex& Source = MeshData.ReferenceVertices[VertexIndex];
 	const FSkinWeightInfo& Influences = MeshData.SkinWeights[VertexIndex];
@@ -106,7 +118,6 @@ void FSkeletalMeshObject::SkinVertexCPU(int32 VertexIndex)
 	}
 
 	// 이전 출력이 아닌 원본에서 매번 계산한다. UV와 Color도 원본 그대로 유지한다.
-	FVertex& Dest = SkinnedVertices[VertexIndex];
 	Dest = Source;
 	// Importer는 영향이 없는 정점을 0 Weight로 남긴다. 원본 메시 공간에 유지한다.
 	if (!bHasInfluence) return;
@@ -139,7 +150,7 @@ void FSkeletalMeshObject::SkinVertexCPU(int32 VertexIndex)
 }
 
 // 변형된 정점을 모두 포함하는 경계 상자를 구해 컬링과 그림자 범위 계산에 사용한다.
-void FSkeletalMeshObject::UpdateLocalBounds()
+void FSkeletalMeshObjectCPUSkin::UpdateLocalBounds()
 {
 	LocalBounds.Min = LocalBounds.Max = SkinnedVertices[0].Position;
 	for (const FVertex& Vertex : SkinnedVertices)
@@ -150,20 +161,20 @@ void FSkeletalMeshObject::UpdateLocalBounds()
 }
 
 // 첫 업로드에 필요한 동적 정점 버퍼를 한 번만 생성한다.
-bool FSkeletalMeshObject::InitializeResources()
+bool FSkeletalMeshObjectCPUSkin::InitializeResources()
 {
 	if (!IndexBuffer) return false;
 	if (DynamicVertexBuffer) return true;
 	// IB는 리소스의 공유 버퍼를 사용하고, 출력용 VB만 컴포넌트별로 생성한다.
 	auto NewVertexBuffer = RenderCommand::CreateDynamicVertexBuffer(
 		static_cast<uint32>(sizeof(FVertex) * SkinnedVertices.Num()), sizeof(FVertex));
-	if (!NewVertexBuffer->GetBuffer()) return false;
+	if (!NewVertexBuffer || !NewVertexBuffer->GetBuffer()) return false;
 	DynamicVertexBuffer = std::move(NewVertexBuffer);
 	return true;
 }
 
 // 변형한 정점 전체를 GPU에 옮기고, 성공하면 업로드 대기 상태를 해제한다.
-bool FSkeletalMeshObject::UploadSkinnedVertices()
+bool FSkeletalMeshObjectCPUSkin::UploadDynamicData()
 {
 	if (!bVertexBufferDirty) return true;
 	if (!InitializeResources()) return false;
@@ -175,9 +186,64 @@ bool FSkeletalMeshObject::UploadSkinnedVertices()
 	return true;
 }
 
-FMeshGeometry FSkeletalMeshObject::GetGeometry() const
+FMeshGeometry FSkeletalMeshObjectCPUSkin::GetGeometry() const
 {
 	// 처음 업로드하기 전이나 갱신 실패 시에는 미완성 버퍼를 제출하지 않는다.
 	return bVertexBufferDirty ? FMeshGeometry{}
-		: FMeshGeometry{ DynamicVertexBuffer.get(), IndexBuffer, SortID };
+		: FMeshGeometry{ DynamicVertexBuffer.get(), IndexBuffer, SortID, nullptr, nullptr, true };
+}
+
+FSkeletalMeshObjectGPUSkin::FSkeletalMeshObjectGPUSkin(USkeletalMesh& InMesh)
+	: FSkeletalMeshObject(InMesh.GetMeshData(), InMesh.GetIndexBuffer()), Mesh(InMesh)
+{
+}
+
+FSkeletalMeshObjectGPUSkin::~FSkeletalMeshObjectGPUSkin() = default;
+
+void FSkeletalMeshObjectGPUSkin::UpdateSkinning(const TArray<uint8>*)
+{
+	// 비음수 정규화 Weight의 가중합은 변환된 상자들의 합집합 AABB 안에 있다.
+	// GPU 모드의 컬링을 위해 정점 전체를 CPU에서 다시 스키닝하지 않는다.
+	LocalBounds = MeshData.ReferenceBounds;
+	for (const FMatrix& Matrix : SkinningMatrices)
+		LocalBounds.Expand(MeshData.ReferenceBounds.GetWorldAABB(Matrix));
+	PickingVertices.Reset();
+	bSkinningBufferDirty = true;
+}
+
+bool FSkeletalMeshObjectGPUSkin::UploadDynamicData()
+{
+	if (!bSkinningBufferDirty) return true;
+	if (!Mesh.InitializeGPUResources()) return false;
+	if (!SkinningMatrixBuffer)
+	{
+		auto NewBuffer = RenderCommand::CreateDynamicStructuredBuffer(
+			static_cast<uint32>(SkinningMatrices.Num()), sizeof(FMatrix));
+		if (!NewBuffer || !NewBuffer->GetBuffer() || !NewBuffer->GetSRV()) return false;
+		SkinningMatrixBuffer = std::move(NewBuffer);
+	}
+	void* Mapped = RenderCommand::MapWriteDiscard(SkinningMatrixBuffer.get());
+	if (!Mapped) return false;
+	std::memcpy(Mapped, SkinningMatrices.GetData(), sizeof(FMatrix) * SkinningMatrices.Num());
+	RenderCommand::Unmap(SkinningMatrixBuffer.get());
+	bSkinningBufferDirty = false;
+	return true;
+}
+
+FMeshGeometry FSkeletalMeshObjectGPUSkin::GetGeometry() const
+{
+	if (bSkinningBufferDirty) return {};
+	return { Mesh.GetReferenceVertexBuffer(), IndexBuffer, SortID,
+		Mesh.GetSkinWeightBuffer(), SkinningMatrixBuffer.get(), true };
+}
+
+const TArray<FVertex>& FSkeletalMeshObjectGPUSkin::GetSkinnedVertices() const
+{
+	if (PickingVertices.IsEmpty())
+	{
+		PickingVertices.SetNum(MeshData.ReferenceVertices.Num());
+		for (int32 Index = 0; Index < PickingVertices.Num(); ++Index)
+			SkinVertexCPU(Index, PickingVertices[Index]);
+	}
+	return PickingVertices;
 }

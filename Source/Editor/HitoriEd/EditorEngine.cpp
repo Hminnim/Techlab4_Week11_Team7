@@ -40,10 +40,12 @@
 #include "Render/RenderResourceManager.h"
 
 #include "Render/RenderCommand.h"
+#include "Editor/AnimationStateMachine/AnimationStateMachinePanel.h"
 #include "Editor/Outliner/OutlinerPanel.h"
 #include "Editor/HitoriEd/EditorFileUtils.h"
 #include "Editor/Viewports/EditorViewportClient.h"
 #include "Editor/SkeletalMeshEditor/SkeletalMeshEditorPanel.h"
+#include "Editor/AnimationSequenceEditor/AnimationSequenceEditorPanel.h"
 #include "UObject/UObjectIterator.h"
 
 #include "Core/EngineLog.h"
@@ -73,175 +75,6 @@ namespace
 	DECLARE_CYCLE_STAT("Capture World", STAT_CaptureWorld);
 	DECLARE_CYCLE_STAT("Build Render Queue", STAT_BuildRenderQueue);
 	DECLARE_CYCLE_STAT("ImGui", STAT_ImGui);
-
-#if defined(ENGINE_DEBUG)
-	// 애니메이션 에셋 없이 상태 전환 코어만 확인하는 임시 실행 예제.
-	void VerifyAnimStateMachine()
-	{
-		bool bAttackRequested = false;
-		bool bHitRequested = false;
-		FAnimStateMachine Machine;
-
-		const int32 Locomotion = Machine.AddState(FName("Locomotion"));
-		const int32 Attack = Machine.AddState(FName("Attack"));
-		const int32 Hit = Machine.AddState(FName("Hit"));
-		const bool bTransitionAdded = Machine.AddTransition(Locomotion, Attack,
-			[&bAttackRequested]() { return bAttackRequested; });
-		// 실제 클립 종료 정보가 연결되기 전까지 1초 타이머로 복귀를 확인한다.
-		const bool bReturnTransitionAdded = Machine.AddTransition(Attack, Locomotion,
-			[&Machine]() { return Machine.GetStateElapsedTime() >= 1.0f; });
-		const bool bHitTransitionAdded = Machine.AddAnyStateTransition(Hit,
-			[&bHitRequested]() { return bHitRequested; });
-		const bool bHitReturnTransitionAdded = Machine.AddTransition(Hit, Locomotion,
-			[&Machine]() { return Machine.GetStateElapsedTime() >= 1.0f; });
-
-		if (!bTransitionAdded || !bReturnTransitionAdded || !bHitTransitionAdded
-			|| !bHitReturnTransitionAdded || !Machine.Start(Locomotion))
-		{
-			HTR_LOG(Error, "[AnimSM] Setup failed");
-			return;
-		}
-
-		Machine.Update(0.016f);
-		HTR_LOG(Info, "[AnimSM] Before input: {}", Machine.GetCurrentStateName().ToString());
-		const bool bStayedInLocomotion = Machine.GetCurrentState() == Locomotion;
-
-		bAttackRequested = true;
-		Machine.Update(0.016f);
-		HTR_LOG(Info, "[AnimSM] After input: {}", Machine.GetCurrentStateName().ToString());
-
-		if (!bStayedInLocomotion || Machine.GetCurrentState() != Attack)
-		{
-			HTR_LOG(Error, "[AnimSM] Verification failed");
-			return;
-		}
-
-		bAttackRequested = false;
-		Machine.Update(0.5f);
-		HTR_LOG(Info, "[AnimSM] After 0.5s: {}", Machine.GetCurrentStateName().ToString());
-		const bool bStayedInAttack = Machine.GetCurrentState() == Attack;
-
-		Machine.Update(0.5f);
-		HTR_LOG(Info, "[AnimSM] After 1.0s: {}", Machine.GetCurrentStateName().ToString());
-		if (!bStayedInAttack || Machine.GetCurrentState() != Locomotion || Machine.GetStateElapsedTime() != 0.0f)
-		{
-			HTR_LOG(Error, "[AnimSM] Automatic return verification failed");
-			return;
-		}
-
-		Machine.Update(0.016f);
-		if (Machine.GetCurrentState() != Locomotion)
-		{
-			HTR_LOG(Error, "[AnimSM] Attack request was not cleared");
-			return;
-		}
-
-		// 공격과 피격이 동시에 들어오면 일반 공격 전이보다 피격이 우선한다.
-		bAttackRequested = true;
-		bHitRequested = true;
-		Machine.Update(0.016f);
-		HTR_LOG(Info, "[AnimSM] Hit from Locomotion: {}", Machine.GetCurrentStateName().ToString());
-		if (Machine.GetCurrentState() != Hit || Machine.GetStateElapsedTime() != 0.0f)
-		{
-			HTR_LOG(Error, "[AnimSM] Any State priority verification failed");
-			return;
-		}
-
-		bAttackRequested = false;
-		// 피격 조건이 유지되어도 Hit 자신으로 전환하며 시간을 초기화하지 않는다.
-		Machine.Update(0.5f);
-		const bool bHitTimeAdvanced = Machine.GetCurrentState() == Hit
-			&& Machine.GetStateElapsedTime() == 0.5f;
-		bHitRequested = false;
-		Machine.Update(0.5f);
-		HTR_LOG(Info, "[AnimSM] Hit finished: {}", Machine.GetCurrentStateName().ToString());
-		if (!bHitTimeAdvanced || Machine.GetCurrentState() != Locomotion)
-		{
-			HTR_LOG(Error, "[AnimSM] Hit self-transition or return verification failed");
-			return;
-		}
-
-		bAttackRequested = true;
-		Machine.Update(0.016f);
-		bAttackRequested = false;
-		Machine.Update(0.25f);
-		if (Machine.GetCurrentState() != Attack)
-		{
-			HTR_LOG(Error, "[AnimSM] Attack interruption setup failed");
-			return;
-		}
-
-		bHitRequested = true;
-		Machine.Update(0.016f);
-		HTR_LOG(Info, "[AnimSM] Hit interrupted Attack: {}", Machine.GetCurrentStateName().ToString());
-		if (Machine.GetCurrentState() != Hit || Machine.GetStateElapsedTime() != 0.0f)
-		{
-			HTR_LOG(Error, "[AnimSM] Attack interruption verification failed");
-			return;
-		}
-
-		bHitRequested = false;
-		Machine.Update(1.0f);
-		if (Machine.GetCurrentState() != Locomotion)
-		{
-			HTR_LOG(Error, "[AnimSM] Hit return verification failed");
-			return;
-		}
-
-		// Attack 자동 복귀와 피격 조건이 동시에 참인 경우에도 피격이 우선한다.
-		bAttackRequested = true;
-		Machine.Update(0.016f);
-		bAttackRequested = false;
-		bHitRequested = true;
-		Machine.Update(1.0f);
-		HTR_LOG(Info, "[AnimSM] Hit at Attack end: {}", Machine.GetCurrentStateName().ToString());
-		if (Machine.GetCurrentState() != Hit || Machine.GetStateElapsedTime() != 0.0f)
-		{
-			HTR_LOG(Error, "[AnimSM] Any State priority at Attack end failed");
-			return;
-		}
-
-		// 기본값 OFF: 새 피격 요청이 와도 이미 진행 중인 Hit의 시간은 유지한다.
-		bHitRequested = false;
-		Machine.Update(0.25f);
-		bHitRequested = true;
-		Machine.Update(0.25f);
-		bHitRequested = false;
-		HTR_LOG(Info, "[AnimSM] Hit restart OFF: {}s", Machine.GetStateElapsedTime());
-		if (Machine.GetCurrentState() != Hit || Machine.GetStateElapsedTime() != 0.5f)
-		{
-			HTR_LOG(Error, "[AnimSM] Disabled Hit restart verification failed");
-			return;
-		}
-
-		Machine.SetStateRestartOnReentry(Hit, true);
-		Machine.Update(0.25f);
-		const bool bTogglePreservedTime = Machine.GetStateElapsedTime() == 0.75f;
-		bHitRequested = true;
-		Machine.Update(0.016f);
-		bHitRequested = false; // 한 번의 피격 요청을 처리한 뒤 해제한다.
-		HTR_LOG(Info, "[AnimSM] Hit restart ON: {}s", Machine.GetStateElapsedTime());
-		if (!bTogglePreservedTime || Machine.GetCurrentState() != Hit || Machine.GetStateElapsedTime() != 0.0f)
-		{
-			HTR_LOG(Error, "[AnimSM] Enabled Hit restart verification failed");
-			return;
-		}
-
-		Machine.SetStateRestartOnReentry(Hit, false);
-		bHitRequested = true;
-		Machine.Update(0.5f);
-		bHitRequested = false;
-		const bool bRestartDisabledAgain = Machine.GetStateElapsedTime() == 0.5f;
-		Machine.Update(0.5f);
-		if (!bRestartDisabledAgain || Machine.GetCurrentState() != Locomotion)
-		{
-			HTR_LOG(Error, "[AnimSM] Hit restart toggle OFF or return verification failed");
-			return;
-		}
-
-		HTR_LOG(Info, "[AnimSM] Verification passed");
-	}
-#endif
 }
 
 #include "Core/SplashScreen.h"
@@ -291,10 +124,6 @@ bool UEditorEngine::Init()
 	OutputLogPanel = EditorUI->AddEditorPanel<FOutputLogPanel>();
 	FLog::AddSink(OutputLogPanel);
 
-#if defined(ENGINE_DEBUG)
-	VerifyAnimStateMachine();
-	AnimTest::VerifyAnimNodeStateMachine();
-#endif
 	HTR_LOG(Info, "Editor Initialize...");
 
 	// 테스트 코드 
@@ -346,6 +175,7 @@ bool UEditorEngine::Init()
 
 	EditorControlsPanel = EditorUI->AddEditorPanel<FEditorControlsPanel>();
 	ViewportsPanel = EditorUI->AddEditorPanel<FViewportsPanel>();
+	ViewportsPanel->SetRenderer(Renderer);
 	ContentDrawerPanel = EditorUI->AddEditorPanel<FContentDrawerPanel>();
 
 	// OutLine
@@ -360,14 +190,21 @@ bool UEditorEngine::Init()
 	SettingsPanel = EditorUI->AddEditorPanel<FSettingsPanel>();
 	SequencerPanel = EditorUI->AddEditorPanel<FSequencerPanel>();
 	OutputLogPanel->SetEditorSettings(&SettingsPanel->GetMutableSettings());
-
+	
 	UIEditorPanel = EditorUI->AddEditorPanel<FUIEditorPanel>();
 	SkeletalMeshEditorPanel = EditorUI->AddEditorPanel<FSkeletalMeshEditorPanel>();
 	SkeletalMeshEditorPanel->SetEditorSettings(&SettingsPanel->GetMutableSettings());
+	AnimationSequenceEditorPanel = EditorUI->AddEditorPanel<FAnimationSequenceEditorPanel>();
+	AnimationSequenceEditorPanel->SetEditorSettings(&SettingsPanel->GetMutableSettings());
+
 
 	ContentDrawerPanel->SetCreateWidgetCallback([this](const FString& Path) { UIEditorPanel->NewAsset(Path); });
 	ContentDrawerPanel->SetOpenWidgetCallback([this](const FString& Path) { UIEditorPanel->OpenAsset(Path); });
 	ContentDrawerPanel->SetOpenSkeletalCallback([this](const FString& Path) { SkeletalMeshEditorPanel->OpenAsset(Path); });
+	ContentDrawerPanel->SetOpenAnimationCallback([this](UAnimSequence* Sequence, USkeletalMesh* Mesh)
+	{
+		AnimationSequenceEditorPanel->OpenAsset(Sequence, Mesh);
+	});
 	ViewportsPanel->SetSkeletalMeshDropCallback([this](USkeletalMesh* Mesh, int32 ViewIndex, const FVector2& Mouse)
 	{
 		if (!Mesh || PlayWorld || !EditorWorld) return;
@@ -418,6 +255,12 @@ bool UEditorEngine::Init()
 
 	OutlinerPanel = EditorUI->AddEditorPanel<FOutlinerPanel>();
 	OutlinerPanel->SetWorld(GetActiveWorld());
+	AnimationStateMachinePanel = EditorUI->AddEditorPanel<FAnimationStateMachinePanel>();
+	AnimationStateMachinePanel->SetSelectedActorQuery([this]()
+	{
+		AActor* Actor = PlayWorld ? OutlinerPanel->GetSelectedActor() : nullptr;
+		return Actor && Actor->GetWorld() == PlayWorld ? Actor : nullptr;
+	});
 	OutlinerPanel->SetSelectionCallback(
 		[this](USceneComponent* Root)
 		{
@@ -567,7 +410,9 @@ void UEditorEngine::Tick(const float DeltaTime)
 		}
 		AudioDevice->Update(!bIsPaused);
 	}
+	Renderer->BeginSkinningProfileFrame();
 	RenderViewports();
+	Renderer->EndSkinningProfileFrame();
 	EndFrame();
 }
 
@@ -1040,6 +885,7 @@ void UEditorEngine::RenderViewports()
 
 	UIEditorPanel->RenderPreview(*UIRenderer);
 	RenderSkeletalMeshPreview();
+	RenderAnimationSequencePreview();
 }
 
 void UEditorEngine::UpdatePIEViewCamera()
@@ -1147,6 +993,61 @@ void UEditorEngine::RenderSkeletalMeshPreview()
 					};
 			}
 			
+			Overlays.bClearEditorDepth = true;
+		});
+}
+
+// 애니메이션 시퀀스 에디터의 프리뷰 월드를 렌더 타깃에 그립니다.
+void UEditorEngine::RenderAnimationSequencePreview()
+{
+	if (!AnimationSequenceEditorPanel || !AnimationSequenceEditorPanel->IsOpen()) return;
+
+	UWorld* PreviewWorld = AnimationSequenceEditorPanel->GetPreviewWorld();
+	FEditorViewportClient* PreviewClient = AnimationSequenceEditorPanel->GetViewportClient();
+	if (!PreviewWorld ||
+		!PreviewClient ||
+		PreviewClient->GetWidth() == 0 ||
+		PreviewClient->GetHeight() == 0 ||
+		!PreviewClient->GetColorTarget()) return;
+
+	FSceneRenderOptions Options;
+	BuildSceneRenderOptions(PreviewClient, false, Options);
+
+	const FSceneView SceneView = PreviewClient->CalcSceneView();
+
+	FSceneRenderer SceneRenderer(PreviewWorld, SceneView, PreviewClient->GetRenderData());
+	SceneRenderer.InitViews(Renderer, Options);
+
+	FSceneViewTargets& Targets = PreviewClient->GetViewTargets();
+	RenderScene(Targets, SceneView, SceneRenderer, PreviewWorld, Options,
+		[this, &SceneView, &Targets](FSceneOverlayCallbacks& Overlays)
+		{
+			if (AnimationSequenceEditorPanel->IsRenderGrid())
+			{
+				const FViewportSettings ViewportSettings
+				{
+					.StartX = 0,
+					.StartY = 0,
+					.Width = Targets.SceneColor->GetWidth(),
+					.Height = Targets.SceneColor->GetHeight(),
+					.MinDepth = 0.0f,
+					.MaxDepth = 1.0f,
+				};
+
+				Overlays.EditorGrid = [this, &SceneView, ViewportSettings]
+					{
+						GridRenderer->OnRenderBatchGrid(
+							SceneView.ViewProjectionMatrix,
+							SceneView.ViewLocation,
+							SceneView.ViewForward,
+							EGridPlane::XY,
+							static_cast<float>(SettingsPanel->GetSettings().GridSpacing),
+							SceneView.bIsPerspective,
+							ViewportSettings);
+					};
+			}
+
+
 			Overlays.bClearEditorDepth = true;
 		});
 }
@@ -1861,7 +1762,9 @@ void UEditorEngine::PreExit()
 	EndPlayMap();
 	// 시퀀서는 에디터 월드 액터를 가리키므로 월드보다 먼저 정리한다
 	if (SequencerPanel) SequencerPanel->Shutdown();
+	if (AnimationStateMachinePanel) AnimationStateMachinePanel->Shutdown();
 	if (SkeletalMeshEditorPanel) DestroyWorld(SkeletalMeshEditorPanel->ReleasePreviewWorld());
+	if (AnimationSequenceEditorPanel) DestroyWorld(AnimationSequenceEditorPanel->ReleasePreviewWorld());
 	EditorWorld->ClearWorld();
 	// PIE 창이 열린 채 종료하면 Device가 살아 있을 때 Swapchain과 타깃을 먼저 정리한다.
 	DestroyPIEWindow();

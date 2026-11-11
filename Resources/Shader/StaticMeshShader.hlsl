@@ -1,4 +1,5 @@
 #pragma pack_matrix(row_major)
+#include "Skinning.hlsli"
 cbuffer Viewconstants : register(b0)
 {
     matrix VP;
@@ -59,8 +60,9 @@ static const float3 LightDir = normalize(float3(0.5f, 0.5f, -1.0f));
 static const float3 LightColor = float3(0.5f, 0.5f, 0.5f);
 static const float3 AmbientColor = float3(0.5f, 0.5f, 0.5f);
 
-PS_INPUT mainVS(VS_INPUT input)
+PS_INPUT mainVS(VS_INPUT input, uint VertexID : SV_VertexID)
 {
+    ApplySkinning(VertexID, input.position, input.normal, input.tangent);
     PS_INPUT output;
 
     output.worldPos = mul(float4(input.position, 1.0f), World).xyz;

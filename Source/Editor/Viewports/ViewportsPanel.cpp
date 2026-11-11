@@ -7,6 +7,8 @@
 #include "Core/StatOverlay.h"
 #include "Core/Stats/LightweightStats.h"
 #include "Render/RenderCommand.h"
+#include "Render/Renderer.h"
+#include "Components/SkeletalMeshComponent.h"
 
 #include <algorithm>
 #include <cassert>
@@ -400,7 +402,9 @@ void FViewportsPanel::DrawStatOverlay(ImDrawList* DrawList, const ImVec2& ViewMi
 		ProfileLines.Add({"CPU Profile (ms)", TitleColor, {"Last", "Avg", "Max"}});
 
 		for (const auto &[Name, Data] : FStatRegistry::GetAll()) {
-			if (TStatId{Name} == EditorStats::STAT_PickingTime)
+			if (TStatId{Name} == EditorStats::STAT_PickingTime ||
+				TStatId{Name} == EditorStats::STAT_SkinningCPUUpdate ||
+				TStatId{Name} == EditorStats::STAT_SkinningGPUPrepare)
 				continue;
 
 			FProfileStatLine Line{"  " + FString(Name), ValueColor};
@@ -409,6 +413,34 @@ void FViewportsPanel::DrawStatOverlay(ImDrawList* DrawList, const ImVec2& ViewMi
 			Line.Values[2] = std::format("{:.2f}", Data.GetMaxMs());
 			ProfileLines.Add(Line);
 		}
+	}
+
+	if (FStatOverlay::IsEnabled(EStatFlags::Profile)) {
+		ProfileLines.Add({USkeletalMeshComponent::IsGPUSkinningEnabled()
+			? "Skinning: GPU (global)" : "Skinning: CPU (global)", TitleColor});
+		ProfileLines.Add({"Skinning CPU (ms)", TitleColor, {"Last", "Avg", "Max"}});
+		const TStatId CPUStats[] = {
+			EditorStats::STAT_SkinningCPUUpdate,
+			EditorStats::STAT_SkinningGPUPrepare
+		};
+		// 기존 목록은 측정된 Stat만 열거한다. 스키닝 두 항목은 측정 전에도 표시한다.
+		for (TStatId StatId : CPUStats) {
+			const FCycleStatData* Data = FStatRegistry::Find(StatId);
+			const bool bHasSamples = Data && Data->CallCount > 0;
+			FProfileStatLine CPULine{"  " + FString(StatId.GetName()), ValueColor};
+			CPULine.Values[0] = bHasSamples ? std::format("{:.2f}", Data->GetLastMs()) : "--";
+			CPULine.Values[1] = bHasSamples ? std::format("{:.2f}", Data->GetRecentAverageMs()) : "--";
+			CPULine.Values[2] = bHasSamples ? std::format("{:.2f}", Data->GetMaxMs()) : "--";
+			ProfileLines.Add(CPULine);
+		}
+		ProfileLines.Add({"Skeletal Draw GPU (ms)", TitleColor, {"Last", "Avg", "Max"}});
+		const FCycleStatData* Data = Renderer ? &Renderer->GetSkinningDrawGPUStats() : nullptr;
+		const bool bHasSamples = Data && Data->CallCount > 0;
+		FProfileStatLine Line{"  Base / Depth / Shadow / Outline", ValueColor};
+		Line.Values[0] = bHasSamples ? std::format("{:.2f}", Data->GetLastMs()) : "--";
+		Line.Values[1] = bHasSamples ? std::format("{:.2f}", Data->GetRecentAverageMs()) : "--";
+		Line.Values[2] = bHasSamples ? std::format("{:.2f}", Data->GetMaxMs()) : "--";
+		ProfileLines.Add(Line);
 	}
 
 	if (const FCycleStatData *PickingData =

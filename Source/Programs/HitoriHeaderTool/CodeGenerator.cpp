@@ -92,23 +92,33 @@ std::string GenerateHeader(const FHeaderInfo& Header, const std::string& ModuleN
     for (const FClassInfo& Class : Header.Classes)
     {
         std::vector<std::string> Lines;
-        Lines.push_back("\tDECLARE_CLASS(" + Class.Name + ", " + Class.SuperName + ")");
-
-        if (!Class.Properties.empty())
+        if (Class.bIsStruct)
         {
+            Lines.push_back("\tDECLARE_STRUCT(" + Class.Name + ")");
+        }
+        else
+        {
+            Lines.push_back("\tDECLARE_CLASS(" + Class.Name + ", " + Class.SuperName + ")");
+        }
+
+        if (Class.bIsStruct || !Class.Properties.empty())
+        {
+            const std::string OwnerType = Class.bIsStruct ? "UScriptStruct" : "UClass";
+            const std::string OwnerName = Class.bIsStruct ? "InStruct" : "InClass";
             Lines.push_back("public:");
-            Lines.push_back("\tstatic void RegisterProperties(UClass* InClass)");
+            Lines.push_back("\tstatic void RegisterProperties(" + OwnerType + "* " + OwnerName + ")");
             Lines.push_back("\t{");
             for (const FPropertyInfo& Property : Class.Properties)
             {
                 const std::string Type = "decltype(ThisClass::" + Property.Name + ")";
                 if (!Property.Meta.empty())
                 {
-                    Lines.push_back("\t\tstatic_assert(TSupportsNumericMeta<" + Type + ">, \"" + Property.Name
+                    Lines.push_back("\t\tstatic_assert(TSupportsNumericMeta<" + Type + ">, \""
+                        + Header.RelativePath + "(" + std::to_string(Property.Line) + "): " + Property.Name
                         + ": meta is only allowed on float, int32, uint32, FVector, FVector4, FRotator properties.\");");
                 }
 
-                std::string Call = "\t\tInClass->AddProperty<" + Type + ">(\"" + Property.Name + "\", offsetof(ThisClass, " + Property.Name + ")";
+                std::string Call = "\t\t" + OwnerName + "->AddProperty<" + Type + ">(\"" + Property.Name + "\", offsetof(ThisClass, " + Property.Name + ")";
                 if (!Property.TypeOverride.empty())
                 {
                     Call += ", EPropertyType::" + Property.TypeOverride;
@@ -126,7 +136,10 @@ std::string GenerateHeader(const FHeaderInfo& Header, const std::string& ModuleN
                 Lines.push_back(Call + ");");
             }
             Lines.push_back("\t}");
-            Lines.push_back("private:");
+            if (!Class.bIsStruct)
+            {
+                Lines.push_back("private:");
+            }
         }
 
         if (!Class.Functions.empty())

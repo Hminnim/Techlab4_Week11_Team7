@@ -20,6 +20,11 @@ public:
 	int32 GetCurrentState() const { return StateMachine.GetCurrentState(); }
 	FName GetCurrentStateName() const { return StateMachine.GetCurrentStateName(); }
 	float GetStateElapsedTime() const { return StateMachine.GetStateElapsedTime(); }
+	const FAnimStateMachine& GetStateMachine() const { return StateMachine; }
+	const FAnimNode_Base* GetStatePoseNode(int32 StateIndex) const
+	{
+		return StateNodes.IsValidIndex(StateIndex) ? StateNodes[StateIndex].get() : nullptr;
+	}
 
 private:
 	FAnimStateMachine StateMachine;

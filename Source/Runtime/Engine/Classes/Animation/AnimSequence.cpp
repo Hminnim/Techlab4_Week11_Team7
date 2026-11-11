@@ -224,12 +224,27 @@ void UAnimSequence::GetBonePose(FCompactPose& OutPose, const FAnimExtractContext
 
 	const FReferenceSkeleton& RefSkeleton = *OutPose.GetRefSkeleton();
 	const FBoneAnimationTrack* RootMotionTrack = bEnableRootMotion ? FindRootMotionTrack() : nullptr;
+	const TArray<FMeshBoneInfo>& BoneInfos = RefSkeleton.RawRefBoneInfo;
+	const TArray<FBoneAnimationTrack>& BoneAnimationTracks = DataModel->GetBoneAnimationTracks();
+	const int32 TrackNum = BoneAnimationTracks.Num();
+	const int32 BoneNum = BoneInfos.Num();
 
-	for (const FBoneAnimationTrack& Track : DataModel->GetBoneAnimationTracks())
+	if (TrackBoneIndexHints.Num() != TrackNum)
+		TrackBoneIndexHints.Init(INDEX_NONE, TrackNum);
+
+	for (int32 i = 0; i < TrackNum; ++i)
 	{
-		const int32 BoneIndex = RefSkeleton.FindBoneIndex(Track.Name);
-		if (BoneIndex == INDEX_NONE)
-			continue;
+		const FBoneAnimationTrack& Track = BoneAnimationTracks[i];
+		int32& BoneIndex = TrackBoneIndexHints[i];
+
+		if (BoneIndex < 0 || BoneIndex >= BoneNum
+			|| BoneInfos[BoneIndex].Name != Track.Name)
+		{
+			BoneIndex = RefSkeleton.FindBoneIndex(Track.Name);
+
+			if (BoneIndex == INDEX_NONE)
+				continue;
+		}
 
 		const FRawAnimSequenceTrack& Keys = Track.InternalTrack;
 		if (Keys.PosKeys.Num() == 0 || Keys.RotKeys.Num() == 0 || Keys.ScaleKeys.Num() == 0)
@@ -315,7 +330,7 @@ const FBoneAnimationTrack* UAnimSequence::FindRootMotionTrack() const
 	if (Tracks.IsEmpty())
 		return nullptr;
 
-	const FName RootName("root");
+	static const FName RootName("root");
 	for (const FBoneAnimationTrack& Track : Tracks)
 	{
 		if (Track.Name == RootName)

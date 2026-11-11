@@ -31,6 +31,7 @@ struct FQuat
 	FQuat operator * (const FQuat& Other) const;
 	FQuat operator* (const float Scalar) const;
 	FQuat operator+ (const FQuat& Other) const;
+	FQuat operator- (const FQuat& Other) const;
 	void operator+= (const FQuat& Other);
 
 	FQuat Conjugate() const;
@@ -45,7 +46,7 @@ struct FQuat
 	FVector GetRightVector() const;
 	FVector GetUpVector() const;
 
-	float Dot(const FQuat& Other);
+	float Dot(const FQuat& Other) const;
 
 	/* Static */
 	static FQuat Identity();

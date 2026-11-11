@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Editor/EditorUI/EditorPanel.h"
+#include "Editor/EditorUI/EditorTimeline.h"
 #include "MovieScene/MovieSceneFrameTime.h"
 #include "MovieSceneTracks/MovieSceneEventTrack.h"
 #include <functional>
@@ -64,8 +65,8 @@ private:
 	UMovieSceneSection* GetKeySection(UMovieSceneTrack* Track) const;
 	UMovieScene* GetMovieScene() const;
 
-	float TimeToX(float Seconds, float OriginX) const { return OriginX + (Seconds - ViewStart) * PixelsPerSecond; }
-	float XToTime(float X, float OriginX) const { return ViewStart + (X - OriginX) / PixelsPerSecond; }
+	float TimeToX(float Seconds, float OriginX) const { return TimelineView.TimeToX(Seconds, OriginX); }
+	float XToTime(float X, float OriginX) const { return TimelineView.XToTime(X, OriginX); }
 	float SnapSeconds(float Seconds) const;
 	float FrameToSeconds(FFrameNumber Frame) const;
 	FFrameNumber SecondsToFrame(float Seconds) const;
@@ -78,8 +79,7 @@ private:
 	bool bWorldIsEditor = true;
 	std::function<void(UCameraComponent*)> PilotCamera;
 
-	float PixelsPerSecond = 120.0f;
-	float ViewStart = 0.0f;
+	EditorTimeline::FView TimelineView;
 	bool bSnap = true;
 
 	UMovieSceneTrack* SelectedTrack = nullptr;

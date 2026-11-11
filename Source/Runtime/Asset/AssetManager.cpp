@@ -20,6 +20,7 @@
 #include "Engine/Classes/Sound/SoundWave.h"
 
 #include "Render/ImageLoader.h"
+#include <algorithm>
 #include <cctype>
 #include <limits>
 #include <utility>
@@ -877,6 +878,25 @@ int32 UAssetManager::LoadFbxAnimations(const FString& Key, const FString& Path, 
 	}
 
 	return AnimCount;
+}
+
+void UAssetManager::GetFbxAnimationAssets(const FString& FbxKey, TArray<FFbxAnimationAsset>& OutAssets) const
+{
+	OutAssets.Reset();
+	const FString Prefix = FbxKey + "/";
+	for (const auto& [Key, Asset] : AssetMap)
+	{
+		if (!Key.starts_with(Prefix)) continue;
+		if (UAnimSequence* Sequence = Cast<UAnimSequence>(Asset))
+		{
+			OutAssets.Add({ Key, Key.substr(Prefix.size()), Sequence });
+		}
+	}
+
+	std::sort(OutAssets.begin(), OutAssets.end(), [](const FFbxAnimationAsset& A, const FFbxAnimationAsset& B)
+	{
+		return A.DisplayName == B.DisplayName ? A.AssetKey < B.AssetKey : A.DisplayName < B.DisplayName;
+	});
 }
 
 bool UAssetManager::ReorientStaticMesh(UStaticMesh& Mesh, const std::function<FVector(const FVector&)>& Rotate)

@@ -21,7 +21,7 @@ namespace
 	struct FAnimBakeHeader
 	{
 		char Magic[4] = { 'F', 'B', 'X', 'A' };
-		uint32 Version = 1;
+		uint32 Version = 2;
 		int64 SourceWriteTime = 0;
 		uint64 SourceFileSize = 0;
 		uint64 PayloadSize = 0;

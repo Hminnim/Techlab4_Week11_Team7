@@ -1,4 +1,5 @@
 #pragma pack_matrix(row_major)
+#include "Skinning.hlsli"
 
 cbuffer ViewConstants : register(b0)
 {
@@ -66,8 +67,9 @@ float3 DecodeMapNormal(float3 Sample, float Encoding)
     return Sample * 2.0f - 1.0f;
 }
 
-PS_INPUT mainVS(VS_INPUT Input)
+PS_INPUT mainVS(VS_INPUT Input, uint VertexID : SV_VertexID)
 {
+    ApplySkinning(VertexID, Input.Position, Input.Normal, Input.Tangent);
     PS_INPUT Output;
     float4 WorldPosition = mul(float4(Input.Position, 1.0f), World);
 

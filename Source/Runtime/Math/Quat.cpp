@@ -84,6 +84,18 @@ FQuat FQuat::operator+(const FQuat& Other) const
 	return Result;
 }
 
+FQuat FQuat::operator- (const FQuat& Other) const
+{
+	FQuatRegister A = VectorSIMD::Load(V);
+	FQuatRegister B = VectorSIMD::Load(Other.V);
+
+	FQuat Result;
+
+	VectorSIMD::Store(Result.V, VectorSIMD::Sub(A, B));
+
+	return Result;
+}
+
 void FQuat::operator+=(const FQuat& Other)
 {
 	FQuatRegister A = VectorSIMD::Load(V);
@@ -230,7 +242,7 @@ FVector FQuat::GetUpVector() const
 	);
 }
 
-float FQuat::Dot(const FQuat& Other)
+float FQuat::Dot(const FQuat& Other) const
 {
 	return X * Other.X + Y * Other.Y + Z * Other.Z + W * Other.W;
 }

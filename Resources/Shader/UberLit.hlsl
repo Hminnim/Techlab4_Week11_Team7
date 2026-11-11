@@ -1,4 +1,5 @@
 #pragma pack_matrix(row_major)
+#include "Skinning.hlsli"
 
 #include "LightData.hlsli"
 #include "LightEvaluation.hlsli"
@@ -398,8 +399,9 @@ FLightResult CalculateTiledLighting(float3 PixelPosition, float3 P, float ViewDe
 #endif
 
 
-VS_OUT Uber_VS(VS_IN Input)
+VS_OUT Uber_VS(VS_IN Input, uint VertexID : SV_VertexID)
 {
+    ApplySkinning(VertexID, Input.Position, Input.Normal, Input.Tangent);
     VS_OUT Output;
     float4 WorldPosition = mul(float4(Input.Position, 1.0f), World);
     float4 ViewPosition = mul(WorldPosition, View);
@@ -469,5 +471,5 @@ FUberOutput Uber_PS(VS_OUT Input)
 }
 
 // 현재 리소스 매니저는 .hlsl 파일을 스캔할 때 mainVS/mainPS 진입점을 찾는다.
-VS_OUT mainVS(VS_IN Input) { return Uber_VS(Input); }
+VS_OUT mainVS(VS_IN Input, uint VertexID : SV_VertexID) { return Uber_VS(Input, VertexID); }
 FUberOutput mainPS(VS_OUT Input) { return Uber_PS(Input); }

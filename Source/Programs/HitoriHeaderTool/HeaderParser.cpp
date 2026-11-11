@@ -6,6 +6,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <iterator>
+#include <limits>
 
 namespace
 {
@@ -62,17 +63,17 @@ namespace
         return End == Text.c_str() + Text.size() && std::isfinite(OutValue);
     }
 
-    // 0.1 → "0.1f", 1 → "1.0f". float로 표현할 수 있는 가장 짧은 표기를 쓴다.
-    std::string MakeFloatLiteral(double Value)
+    // uint32 범위도 정확하게 보존하도록 double 리터럴을 생성한다.
+    std::string MakeNumberLiteral(double Value)
     {
         char Buffer[64];
-        const auto Result = std::to_chars(Buffer, Buffer + sizeof(Buffer), (float)Value);
+        const auto Result = std::to_chars(Buffer, Buffer + sizeof(Buffer), Value);
         std::string Text(Buffer, Result.ptr);
         if (Text.find_first_of(".eE") == std::string::npos)
         {
             Text += ".0";
         }
-        return Text + "f";
+        return Text;
     }
 }
 
@@ -92,9 +93,9 @@ bool FHeaderParser::Parse(std::vector<FClassInfo>& OutClasses, std::vector<FEnum
     while (!AtEnd())
     {
         const FToken& T = Tok();
-        if (T.Is("UCLASS"))
+        if (T.Is("UCLASS") || T.Is("USTRUCT"))
         {
-            ParseClass();
+            ParseClass(T.Is("USTRUCT"));
         }
         else if (T.Is("GENERATED_BODY"))
         {
@@ -170,24 +171,27 @@ bool FHeaderParser::IsInsideAnyClass() const
 }
 
 // UCLASS(지정자) class [API매크로] 이름 [final] : [public] 부모 [, 다른 부모] {
-void FHeaderParser::ParseClass()
+// USTRUCT(지정자) struct [API매크로] 이름 [final] {
+void FHeaderParser::ParseClass(bool bIsStruct)
 {
+    const char* MacroName = bIsStruct ? "USTRUCT" : "UCLASS";
+    const char* Keyword = bIsStruct ? "struct" : "class";
     const int Line = Tok().Line;
     ++Index;
 
     std::vector<FSpecifier> Specifiers;
-    if (!ParseSpecifiers("UCLASS", Specifiers))
+    if (!ParseSpecifiers(MacroName, Specifiers))
     {
         return;
     }
     if (IsInsideAnyClass())
     {
-        Error(Line, "UCLASS inside a class (nested class) is not supported.");
+        Error(Line, std::string(MacroName) + " inside a reflected type is not supported.");
         return;
     }
-    if (AtEnd() || !Tok().Is("class"))
+    if (AtEnd() || !Tok().Is(Keyword))
     {
-        Error(CurrentLine(), "UCLASS() must be followed by a class definition.");
+        Error(CurrentLine(), std::string(MacroName) + "() must be followed by a " + Keyword + " definition.");
         return;
     }
     ++Index;
@@ -212,60 +216,70 @@ void FHeaderParser::ParseClass()
     }
     if (AtEnd() || Tok().Is(";"))
     {
-        Error(Line, "No class definition after UCLASS(). Do not put UCLASS on a forward declaration.");
+        Error(Line, std::string("No ") + Keyword + " definition after " + MacroName + "(). Do not put " + MacroName + " on a forward declaration.");
         return;
     }
     if (Name.empty())
     {
-        Error(Line, "Could not find the name of the UCLASS() class.");
+        Error(Line, std::string("Could not find the name of the ") + MacroName + "() " + Keyword + ".");
         return;
     }
-    if (!Tok().Is(":"))
+    const bool bHasParent = Tok().Is(":");
+    if (bIsStruct && bHasParent)
+    {
+        Error(Line, "USTRUCT inheritance is not supported yet.");
+        return;
+    }
+    if (!bIsStruct && !bHasParent)
     {
         Error(Line, Quote(Name) + " has no parent class. A UCLASS class must derive from UObject.");
         return;
     }
-    ++Index;
-
-    while (!AtEnd() && (Tok().Is("public") || Tok().Is("protected") || Tok().Is("private") || Tok().Is("virtual")))
-    {
-        ++Index;
-    }
-
-    // 첫 번째 부모가 Super. ns::UBase, UBase<T> 처럼 여러 토큰일 수 있다.
     std::string SuperName;
-    int AngleDepth = 0;
-    while (!AtEnd() && !(AngleDepth == 0 && (Tok().Is(",") || Tok().Is("{"))))
-    {
-        const FToken& T = Tok();
-        if (T.Is("<")) ++AngleDepth;
-        else if (T.Is(">")) --AngleDepth;
-
-        const bool bNeedSpace = !SuperName.empty() && (std::isalnum((unsigned char)SuperName.back()) || SuperName.back() == '_')
-            && (T.Type == ETokenType::Identifier || T.Type == ETokenType::Number);
-        SuperName += (bNeedSpace ? " " : "") + T.Text;
-        ++Index;
-    }
-
-    // 다중 상속이면 나머지 부모는 무시한다.
-    while (!AtEnd() && !Tok().Is("{"))
+    if (bHasParent)
     {
         ++Index;
-    }
-    if (AtEnd())
-    {
-        Error(Line, Quote(Name) + ": could not find the class body '{'.");
-        return;
-    }
-    if (SuperName.empty())
-    {
-        Error(Line, Quote(Name) + ": could not find the parent class name.");
-        return;
+
+        while (!AtEnd() && (Tok().Is("public") || Tok().Is("protected") || Tok().Is("private") || Tok().Is("virtual")))
+        {
+            ++Index;
+        }
+
+        // 첫 번째 부모가 Super. ns::UBase, UBase<T> 처럼 여러 토큰일 수 있다.
+        int AngleDepth = 0;
+        while (!AtEnd() && !(AngleDepth == 0 && (Tok().Is(",") || Tok().Is("{"))))
+        {
+            const FToken& T = Tok();
+            if (T.Is("<")) ++AngleDepth;
+            else if (T.Is(">")) --AngleDepth;
+
+            const bool bNeedSpace = !SuperName.empty() && (std::isalnum((unsigned char)SuperName.back()) || SuperName.back() == '_')
+                && (T.Type == ETokenType::Identifier || T.Type == ETokenType::Number);
+            SuperName += (bNeedSpace ? " " : "") + T.Text;
+            ++Index;
+        }
+
+        // 다중 상속이면 나머지 부모는 무시한다.
+        while (!AtEnd() && !Tok().Is("{"))
+        {
+            ++Index;
+        }
+        if (AtEnd())
+        {
+            Error(Line, Quote(Name) + ": could not find the class body '{'.");
+            return;
+        }
+        if (SuperName.empty())
+        {
+            Error(Line, Quote(Name) + ": could not find the parent class name.");
+            return;
+        }
     }
 
-    ResolveClassSpecifiers(Specifiers);
+    ResolveClassSpecifiers(MacroName, Specifiers);
 
     FClassInfo Info;
+    Info.bIsStruct = bIsStruct;
     Info.Name = Name;
     Info.SuperName = SuperName;
     Info.Line = Line;
@@ -294,7 +308,7 @@ void FHeaderParser::ParseGeneratedBody()
     const int ClassIndex = CurrentClassIndex();
     if (ClassIndex < 0)
     {
-        Error(Line, "GENERATED_BODY() must be directly inside a UCLASS() class body.");
+        Error(Line, "GENERATED_BODY() must be directly inside a UCLASS() or USTRUCT() body.");
         return;
     }
 
@@ -323,7 +337,7 @@ void FHeaderParser::ParseProperty()
     const int ClassIndex = CurrentClassIndex();
     if (ClassIndex < 0)
     {
-        Error(Line, "UPROPERTY is only allowed on member variables directly inside a UCLASS() class body.");
+        Error(Line, "UPROPERTY is only allowed on member variables directly inside a UCLASS() or USTRUCT() body.");
         return;
     }
 
@@ -408,7 +422,7 @@ void FHeaderParser::ParseFunction()
     }
 
     const int ClassIndex = CurrentClassIndex();
-    if (ClassIndex < 0)
+    if (ClassIndex < 0 || (*Classes)[ClassIndex].bIsStruct)
     {
         Error(Line, "UFUNCTION is only allowed on member functions directly inside a UCLASS() class body.");
         return;
@@ -757,18 +771,18 @@ bool FHeaderParser::Expect(const char* Text, const char* Context)
     return true;
 }
 
-void FHeaderParser::ResolveClassSpecifiers(const std::vector<FSpecifier>& Specifiers)
+void FHeaderParser::ResolveClassSpecifiers(const char* MacroName, const std::vector<FSpecifier>& Specifiers)
 {
-    // 아직 UCLASS 지정자는 없다. 추가할 때 여기에 표를 만든다.
     for (const FSpecifier& Specifier : Specifiers)
     {
-        Error(Specifier.Line, "UCLASS specifier " + Quote(Specifier.Key) + " is not supported yet.");
+        Error(Specifier.Line, std::string(MacroName) + " specifier " + Quote(Specifier.Key) + " is not supported yet.");
     }
 }
 
 void FHeaderParser::ResolvePropertySpecifiers(const std::vector<FSpecifier>& Specifiers, FPropertyInfo& Property)
 {
     bool bHasEditSpecifier = false;
+    bool bHasMeta = false;
     for (const FSpecifier& Specifier : Specifiers)
     {
         const auto FlagIt = std::find_if(std::begin(PropertyFlagSpecifiers), std::end(PropertyFlagSpecifiers),
@@ -804,6 +818,12 @@ void FHeaderParser::ResolvePropertySpecifiers(const std::vector<FSpecifier>& Spe
         }
         else if (Specifier.Key == "meta")
         {
+            if (bHasMeta)
+            {
+                Error(Specifier.Line, "Use a single meta=(...) specifier per property.");
+                continue;
+            }
+            bHasMeta = true;
             ResolvePropertyMeta(Specifier, Property);
         }
         else
@@ -877,9 +897,10 @@ void FHeaderParser::ResolvePropertyMeta(const FSpecifier& MetaSpecifier, FProper
     }
 
     enum { ClampMin, ClampMax, UIMin, UIMax, Delta };
-    if (bIsSet[Delta] && Values[Delta] <= 0.0)
+    if (bIsSet[Delta] && (Values[Delta] <= 0.0 || Values[Delta] > std::numeric_limits<float>::max()
+        || static_cast<float>(Values[Delta]) == 0.0f))
     {
-        Error(MetaSpecifier.Line, "meta Delta must be greater than 0.");
+        Error(MetaSpecifier.Line, "meta Delta must be positive and representable as a float.");
     }
     if (bIsSet[ClampMin] && bIsSet[ClampMax] && Values[ClampMin] > Values[ClampMax])
     {
@@ -894,7 +915,7 @@ void FHeaderParser::ResolvePropertyMeta(const FSpecifier& MetaSpecifier, FProper
     {
         if (bIsSet[KeyIndex])
         {
-            Property.Meta.push_back({ PropertyMetaKeys[KeyIndex], MakeFloatLiteral(Values[KeyIndex]) });
+            Property.Meta.push_back({ PropertyMetaKeys[KeyIndex], MakeNumberLiteral(Values[KeyIndex]) });
         }
     }
 }
