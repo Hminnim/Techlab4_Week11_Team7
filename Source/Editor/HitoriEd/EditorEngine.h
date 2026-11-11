@@ -50,6 +50,7 @@
 
 #include "EditorEngine.generated.h"
 
+class FAnimationBlendEditorPanel;
 class FAnimationStateMachinePanel;
 class FSkeletalMeshEditorPanel;
 class FAnimationSequenceEditorPanel;
@@ -148,8 +149,12 @@ private:
 	bool IsPlayingView(int32 ViewIndex) const { return PlayWorld && ViewIndex == PIEViewIndex && !bIsPaused && !IsSimulatingInEditor(); }
 	bool IsSimulatingInEditor() const;
 
+	void RenderPanelPreviewWorld(UWorld* PreviewWorld, FEditorViewportClient* PreviewClient,
+		const FSceneRenderOptions& Options, bool bRenderGrid,
+		const std::function<void(FSceneOverlayCallbacks&, const FSceneView&, const FSceneViewTargets&)>& ExtraOverlays = nullptr);
 	void RenderSkeletalMeshPreview();
 	void RenderAnimationSequencePreview();
+	void RenderBlendSpacePreview();
 
 	void SetSelectedComponent(USceneComponent* Component)
 	{
@@ -199,6 +204,7 @@ private:
 	FUIEditorPanel* UIEditorPanel = nullptr;
 	FSkeletalMeshEditorPanel* SkeletalMeshEditorPanel = nullptr;
 	FAnimationSequenceEditorPanel* AnimationSequenceEditorPanel = nullptr;
+	FAnimationBlendEditorPanel* AnimationBlendEditorPanel = nullptr;
 
 	UWorld* EditorWorld = nullptr;
 	UWorld* PlayWorld = nullptr;

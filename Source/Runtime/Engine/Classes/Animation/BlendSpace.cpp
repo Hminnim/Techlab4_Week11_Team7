@@ -3,36 +3,46 @@
 #include "BonePose.h"
 #include "AnimationRuntime.h"
 
+void UBlendSpace::SortSamples()
+{
+	std::sort(SampleData.begin(), SampleData.end(), [](const FBlendSample& A, const FBlendSample& B)
+	{
+		return A.SamepleVector.X < B.SamepleVector.X;
+	});
+}
+
 int32 UBlendSpace::AddSample(const FVector& SampleValue)
 {
-    FBlendSample SampleToAdd;
-    SampleToAdd.Animation = nullptr;
-    SampleToAdd.SamepleVector = SampleValue;
-
-    SampleData.Add(SampleToAdd);
-
-    std::sort(SampleData.begin(), SampleData.end(), [](const FBlendSample& A, const FBlendSample& B)
-        {
-            return A.SamepleVector.X < B.SamepleVector.X;
-        });
-
-    return SampleData.Num() - 1;
+	return AddSample(nullptr, SampleValue);
 }
 
 int32 UBlendSpace::AddSample(UAnimSequence* Animation, const FVector& SampleValue)
 {
-    FBlendSample SampleToAdd;
-    SampleToAdd.Animation = Animation;
-    SampleToAdd.SamepleVector = SampleValue;
+	FBlendSample SampleToAdd;
+	SampleToAdd.Animation = Animation;
+	SampleToAdd.SamepleVector = SampleValue;
 
-    SampleData.Add(SampleToAdd);
+	SampleData.Add(SampleToAdd);
+	SortSamples();
 
-    std::sort(SampleData.begin(), SampleData.end(), [](const FBlendSample& A, const FBlendSample& B)
-        {
-            return A.SamepleVector.X < B.SamepleVector.X;
-        });
+	for (int32 Index = 0; Index < SampleData.Num(); ++Index)
+	{
+		if (SampleData[Index].Animation == Animation && SampleData[Index].SamepleVector.X == SampleValue.X)
+		{
+			return Index;
+		}
+	}
+	return SampleData.Num() - 1;
+}
 
-    return SampleData.Num() - 1;
+bool UBlendSpace::RemoveSample(int32 SampleIndex)
+{
+	if (!SampleData.IsValidIndex(SampleIndex))
+	{
+		return false;
+	}
+	SampleData.RemoveAt(SampleIndex);
+	return true;
 }
 
 bool UBlendSpace::GetSamplesFromBlendInput(const FVector& BlendInput, TArray<FBlendSampleData>& OutSampleDataList) const

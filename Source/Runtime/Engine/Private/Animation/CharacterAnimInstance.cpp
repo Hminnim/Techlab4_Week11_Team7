@@ -1,6 +1,7 @@
 #include "EnginePCH.h"
 #include "Engine/Classes/Animation/CharacterAnimInstance.h"
 #include "Engine/Classes/Animation/AnimNode_SequencePlayer.h"
+#include "Engine/Classes/Animation/AnimNode_TwoWayBlend.h"
 
 #include <utility>
 
@@ -188,13 +189,68 @@ void UCharacterAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 		return;
 	}
 
-	if (LocomotionBlendSpace) LocomotionBlendSpace->X = Speed;
+	if (bOverrideSpeed)
+	{
+		if (FAnimNode_BlendSpacePlayer* ActiveBS = FindBlendSpacePlayer())
+		{
+			ActiveBS->X = OverrideSpeed;
+		}
+	}
+	else if (LocomotionBlendSpace)
+	{
+		LocomotionBlendSpace->X = Speed;
+	}
 
 	// 이 호출 다음에 RootNode->Update가 실행된다. 입력은 그 프레임에만 유효하다.
 	bAttackRequested = bPendingAttack;
 	bHitRequested = bPendingHit;
 	bPendingAttack = false;
 	bPendingHit = false;
+}
+
+void UCharacterAnimInstance::SetSpeedOverride(bool bEnabled, float InSpeed)
+{
+	bOverrideSpeed = bEnabled;
+	OverrideSpeed = InSpeed;
+}
+
+namespace
+{
+	template <typename TNode>
+	TNode* FindNodeRecursive(FAnimNode_Base* Node)
+	{
+		if (!Node) return nullptr;
+		if (auto* Direct = dynamic_cast<TNode*>(Node)) return Direct;
+		if (auto* Blend = dynamic_cast<FAnimNode_TwoWayBlend*>(Node))
+		{
+			if (auto* FoundA = FindNodeRecursive<TNode>(Blend->A.LinkedNode)) return FoundA;
+			if (auto* FoundB = FindNodeRecursive<TNode>(Blend->B.LinkedNode)) return FoundB;
+		}
+		if (auto* Machine = dynamic_cast<FAnimNode_StateMachine*>(Node))
+		{
+			if (FAnimNode_Base* Active = Machine->GetStatePoseNode(Machine->GetCurrentState()))
+			{
+				if (auto* Found = FindNodeRecursive<TNode>(Active)) return Found;
+			}
+			const int32 NumStates = Machine->GetStateMachine().GetStates().Num();
+			for (int32 i = 0; i < NumStates; ++i)
+			{
+				if (auto* Found = FindNodeRecursive<TNode>(Machine->GetStatePoseNode(i))) return Found;
+			}
+		}
+		return nullptr;
+	}
+}
+
+FAnimNode_BlendSpacePlayer* UCharacterAnimInstance::FindBlendSpacePlayer()
+{
+	if (LocomotionBlendSpace) return LocomotionBlendSpace;
+	return FindNodeRecursive<FAnimNode_BlendSpacePlayer>(RootNode);
+}
+
+FAnimNode_TwoWayBlend* UCharacterAnimInstance::FindTwoWayBlend()
+{
+	return FindNodeRecursive<FAnimNode_TwoWayBlend>(RootNode);
 }
 
 void UCharacterAnimInstance::SetRestartHitOnReentry(bool bEnabled)

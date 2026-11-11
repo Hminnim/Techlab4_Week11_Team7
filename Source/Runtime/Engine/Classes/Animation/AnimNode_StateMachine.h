@@ -21,6 +21,10 @@ public:
 	FName GetCurrentStateName() const { return StateMachine.GetCurrentStateName(); }
 	float GetStateElapsedTime() const { return StateMachine.GetStateElapsedTime(); }
 	const FAnimStateMachine& GetStateMachine() const { return StateMachine; }
+	FAnimNode_Base* GetStatePoseNode(int32 StateIndex)
+	{
+		return StateNodes.IsValidIndex(StateIndex) ? StateNodes[StateIndex].get() : nullptr;
+	}
 	const FAnimNode_Base* GetStatePoseNode(int32 StateIndex) const
 	{
 		return StateNodes.IsValidIndex(StateIndex) ? StateNodes[StateIndex].get() : nullptr;

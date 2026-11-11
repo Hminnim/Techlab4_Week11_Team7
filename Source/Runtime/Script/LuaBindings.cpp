@@ -36,6 +36,7 @@
 #include "Engine/Classes/Animation/AnimStateMachine.h"
 #include "Engine/Classes/Animation/AnimNode_BlendSpacePlayer.h"
 #include "Engine/Classes/Animation/AnimNode_SequencePlayer.h"
+#include "Engine/Classes/Animation/AnimNode_TwoWayBlend.h"
 #include "Engine/Classes/Animation/CharacterAnimInstance.h"
 #include "Camera/CameraShakeBase.h"
 
@@ -128,6 +129,21 @@ namespace
 	{
 		FAnimNode_SequencePlayer* Sequence = nullptr;
 		FAnimNode_BlendSpacePlayer* BlendSpace = nullptr;
+		FAnimNode_TwoWayBlend* TwoWayBlend = nullptr;
+	};
+
+	struct FLuaOwnedTwoWayBlendNode : public FAnimNode_TwoWayBlend
+	{
+		TUniquePtr<FAnimNode_Base> OwnedA;
+		TUniquePtr<FAnimNode_Base> OwnedB;
+
+		void SetOwnedInputs(TUniquePtr<FAnimNode_Base> InA, TUniquePtr<FAnimNode_Base> InB)
+		{
+			OwnedA = std::move(InA);
+			OwnedB = std::move(InB);
+			A.SetLinkNode(OwnedA.get());
+			B.SetLinkNode(OwnedB.get());
+		}
 	};
 
 	struct FLuaAnimStateMachineBinding
@@ -522,6 +538,71 @@ namespace
 		const int32 State = Binding->PendingGraph->AddState(FName(Name), std::move(Player));
 		if (State >= 0) Binding->StatePlayers.Add({ nullptr, PlayerPtr });
 		return State;
+	}
+
+	TUniquePtr<FAnimNode_Base> LoadTwoWayInputNode(const FString& Path, sol::object InputSpec, bool bLoop, FAnimNode_BlendSpacePlayer** OutBlendSpace = nullptr)
+	{
+		if (InputSpec.get_type() == sol::type::string)
+		{
+			const FString Take = InputSpec.as<FString>();
+			FString Error;
+			UAnimSequence* Clip = UAssetManager::Get().LoadFbxAnimSequence(Path, Error, Take);
+			if (!Clip) throw sol::error("Cannot load animation '" + Path + "': " + Error);
+			if (Clip->GetPlayLength() <= 0.0f) return nullptr;
+
+			auto Player = MakeUnique<FAnimNode_SequencePlayer>();
+			Player->SetSequence(Clip);
+			Player->SetLoopAnimation(bLoop);
+			return Player;
+		}
+		if (InputSpec.get_type() == sol::type::table)
+		{
+			auto Player = LoadBlendSpacePlayer(Path, InputSpec.as<sol::table>());
+			if (!Player) return nullptr;
+			Player->bLoop = bLoop;
+			if (OutBlendSpace) *OutBlendSpace = Player.get();
+			return Player;
+		}
+		throw sol::error("TwoWayBlend input must be a take name string or a blend space sample table.");
+	}
+
+	int32 AddTwoWayBlendState(const FLuaAnimStateMachineRef& Ref, const FString& Name,
+		const FString& Path, sol::object InputA, bool bLoopA, sol::object InputB, bool bLoopB, sol::optional<float> InitialAlpha)
+	{
+		const auto Binding = GetAnimStateMachine(Ref);
+		if (!Binding->PendingGraph) return -1;
+
+		FAnimNode_BlendSpacePlayer* NestedBS = nullptr;
+		TUniquePtr<FAnimNode_Base> NodeA = LoadTwoWayInputNode(Path, InputA, bLoopA, &NestedBS);
+		TUniquePtr<FAnimNode_Base> NodeB = LoadTwoWayInputNode(Path, InputB, bLoopB, NestedBS ? nullptr : &NestedBS);
+		if (!NodeA || !NodeB) return -1;
+
+		auto BlendNode = MakeUnique<FLuaOwnedTwoWayBlendNode>();
+		BlendNode->Alpha = FMath::Clamp(InitialAlpha.value_or(0.0f), 0.0f, 1.0f);
+		BlendNode->SetOwnedInputs(std::move(NodeA), std::move(NodeB));
+		FAnimNode_TwoWayBlend* BlendPtr = BlendNode.get();
+
+		const int32 State = Binding->PendingGraph->AddState(FName(Name), std::move(BlendNode));
+		if (State >= 0) Binding->StatePlayers.Add({ nullptr, NestedBS, BlendPtr });
+		return State;
+	}
+
+	bool SetTwoWayBlendAlpha(const FLuaAnimStateMachineRef& Ref, int32 State, float Alpha)
+	{
+		const auto Binding = GetAnimStateMachine(Ref);
+		if (!std::isfinite(Alpha) || !Binding->StatePlayers.IsValidIndex(State)) return false;
+		FAnimNode_TwoWayBlend* Blend = Binding->StatePlayers[State].TwoWayBlend;
+		if (!Blend) return false;
+		Blend->Alpha = FMath::Clamp(Alpha, 0.0f, 1.0f);
+		return true;
+	}
+
+	float GetTwoWayBlendAlpha(const FLuaAnimStateMachineRef& Ref, int32 State)
+	{
+		const auto Binding = GetAnimStateMachine(Ref, true);
+		if (!Binding->StatePlayers.IsValidIndex(State)) return 0.0f;
+		const FAnimNode_TwoWayBlend* Blend = Binding->StatePlayers[State].TwoWayBlend;
+		return Blend ? Blend->Alpha : 0.0f;
 	}
 
 	bool SetBlendSpaceInput(const FLuaAnimStateMachineRef& Ref, int32 State, float X)
@@ -1504,7 +1585,10 @@ namespace FLuaBindings
 			},
 			"AddSequenceState", &AddSequenceState,
 			"AddBlendSpaceState", &AddBlendSpaceState,
+			"AddTwoWayBlendState", &AddTwoWayBlendState,
 			"SetBlendSpaceInput", &SetBlendSpaceInput,
+			"SetTwoWayBlendAlpha", &SetTwoWayBlendAlpha,
+			"GetTwoWayBlendAlpha", &GetTwoWayBlendAlpha,
 			"AddTransition", [](const FLuaAnimStateMachineRef& Ref, int32 From, int32 To, sol::protected_function Rule)
 			{
 				return AddLuaAnimTransition(Ref, From, To, std::move(Rule), false);

@@ -45,6 +45,7 @@
 #include "Editor/HitoriEd/EditorFileUtils.h"
 #include "Editor/Viewports/EditorViewportClient.h"
 #include "Editor/SkeletalMeshEditor/SkeletalMeshEditorPanel.h"
+#include "Editor/AnimationBlendEditor/AnimationBlendEditorPanel.h"
 #include "Editor/AnimationSequenceEditor/AnimationSequenceEditorPanel.h"
 #include "UObject/UObjectIterator.h"
 
@@ -65,7 +66,6 @@
 
 namespace
 {
-	bool bBlendSpaceWindowOpen = false;
 	UBlendSpaceAnimInstance* GPreviewBlendSpaceAnimInst = nullptr;
 	UBlendSpaceAnimInstance* GPIEBlendSpaceAnimInst = nullptr;
 	USkeletalMeshComponent* GPreviewBlendSpaceSkelComp = nullptr;
@@ -197,6 +197,8 @@ bool UEditorEngine::Init()
 	SkeletalMeshEditorPanel->SetEditorSettings(&SettingsPanel->GetMutableSettings());
 	AnimationSequenceEditorPanel = EditorUI->AddEditorPanel<FAnimationSequenceEditorPanel>();
 	AnimationSequenceEditorPanel->SetEditorSettings(&SettingsPanel->GetMutableSettings());
+	AnimationBlendEditorPanel = EditorUI->AddEditorPanel<FAnimationBlendEditorPanel>();
+	AnimationBlendEditorPanel->SetEditorSettings(&SettingsPanel->GetMutableSettings());
 
 
 	ContentDrawerPanel->SetCreateWidgetCallback([this](const FString& Path) { UIEditorPanel->NewAsset(Path); });
@@ -261,6 +263,14 @@ bool UEditorEngine::Init()
 	{
 		AActor* Actor = PlayWorld ? OutlinerPanel->GetSelectedActor() : nullptr;
 		return Actor && Actor->GetWorld() == PlayWorld ? Actor : nullptr;
+	});
+	AnimationBlendEditorPanel->SetSelectedActorQuery([this]() -> AActor*
+	{
+		return OutlinerPanel ? OutlinerPanel->GetSelectedActor() : nullptr;
+	});
+	AnimationBlendEditorPanel->SetFallbackPreviewQuery([this]() -> UBlendSpaceAnimInstance*
+	{
+		return (PlayWorld && GPIEBlendSpaceAnimInst) ? GPIEBlendSpaceAnimInst : GPreviewBlendSpaceAnimInst;
 	});
 	OutlinerPanel->SetSelectionCallback(
 		[this](USceneComponent* Root)
@@ -445,7 +455,7 @@ void UEditorEngine::BeginFrame(const float DeltaTime)
 
 	// 에디터 월드에서는 World::Tick이 컴포넌트 틱을 실행하지 않으므로,
 	// PIE가 아닐 때만 BlendSpace 미리보기 액터의 SkeletalMeshComponent를 명시적으로 틱한다.
-	if (!PlayWorld && bBlendSpaceWindowOpen && GPreviewBlendSpaceSkelComp)
+	if (!PlayWorld && GPreviewBlendSpaceSkelComp)
 	{
 		if (GPreviewBlendSpaceSkelComp->GetWorld() == EditorWorld)
 		{
@@ -455,7 +465,6 @@ void UEditorEngine::BeginFrame(const float DeltaTime)
 		{
 			GPreviewBlendSpaceSkelComp = nullptr;
 			GPreviewBlendSpaceAnimInst = nullptr;
-			bBlendSpaceWindowOpen = false;
 		}
 	}
 }
@@ -560,8 +569,8 @@ void UEditorEngine::HandleSkeletalMeshPreviewInput()
 			const FBox Bounds = Component->CalcLocalBounds().GetWorldAABB(Component->GetWorldMatrix());
 			Client->FocusBounds(Bounds);
 		}
-		bBlendSpaceWindowOpen = true;
-		HTR_LOG(Info, "BlendSpace preview ready (UAL1). Adjust speed via 'BlendSpace 1D Controller' window.");
+		if (AnimationBlendEditorPanel) AnimationBlendEditorPanel->OpenBlendSpaceTab();
+		HTR_LOG(Info, "BlendSpace preview ready (UAL1). Adjust speed via 'BlendSpace & Two-Way Blend' window.");
 		return;
 	}
 
@@ -887,6 +896,7 @@ void UEditorEngine::RenderViewports()
 	UIEditorPanel->RenderPreview(*UIRenderer);
 	RenderSkeletalMeshPreview();
 	RenderAnimationSequencePreview();
+	RenderBlendSpacePreview();
 }
 
 void UEditorEngine::UpdatePIEViewCamera()
@@ -921,35 +931,25 @@ bool UEditorEngine::IsSimulatingInEditor() const
 	return false;
 }
 
-void UEditorEngine::RenderSkeletalMeshPreview()
+void UEditorEngine::RenderPanelPreviewWorld(UWorld* PreviewWorld, FEditorViewportClient* PreviewClient,
+	const FSceneRenderOptions& Options, bool bRenderGrid,
+	const std::function<void(FSceneOverlayCallbacks&, const FSceneView&, const FSceneViewTargets&)>& ExtraOverlays)
 {
-	if (!SkeletalMeshEditorPanel || !SkeletalMeshEditorPanel->IsOpen()) return;
-
-	UWorld* PreviewWorld = SkeletalMeshEditorPanel->GetPreviewWorld();
-	FEditorViewportClient* PreviewClient = SkeletalMeshEditorPanel->GetViewportClient();
 	if (!PreviewWorld ||
 		!PreviewClient ||
 		PreviewClient->GetWidth() == 0 ||
 		PreviewClient->GetHeight() == 0 ||
 		!PreviewClient->GetColorTarget()) return;
 
-	FSceneRenderOptions Options;
-	BuildSceneRenderOptions(PreviewClient, false, Options);
-	Options.bShowBoneWeight = SkeletalMeshEditorPanel->IsBoneWeightEnabled();
-	Options.BoneWeightBoneIndex = SkeletalMeshEditorPanel->GetBoneWeightBoneIndex();
-	if (Options.bShowBoneWeight)
-		Options.LightingModel = ELightingModel::Unlit; // Weight 표시에는 조명과 그림자 준비가 필요 없다.
-
 	const FSceneView SceneView = PreviewClient->CalcSceneView();
-
 	FSceneRenderer SceneRenderer(PreviewWorld, SceneView, PreviewClient->GetRenderData());
 	SceneRenderer.InitViews(Renderer, Options);
 
 	FSceneViewTargets& Targets = PreviewClient->GetViewTargets();
 	RenderScene(Targets, SceneView, SceneRenderer, PreviewWorld, Options,
-		[this, &SceneView, &Targets](FSceneOverlayCallbacks& Overlays)
+		[this, &SceneView, &Targets, bRenderGrid, &ExtraOverlays](FSceneOverlayCallbacks& Overlays)
 		{
-			if (SkeletalMeshEditorPanel->IsRenderGrid())
+			if (bRenderGrid)
 			{
 				const FViewportSettings ViewportSettings
 				{
@@ -974,6 +974,32 @@ void UEditorEngine::RenderSkeletalMeshPreview()
 					};
 			}
 
+			if (ExtraOverlays)
+			{
+				ExtraOverlays(Overlays, SceneView, Targets);
+			}
+
+			Overlays.bClearEditorDepth = true;
+		});
+}
+
+void UEditorEngine::RenderSkeletalMeshPreview()
+{
+	if (!SkeletalMeshEditorPanel || !SkeletalMeshEditorPanel->IsOpen()) return;
+
+	FEditorViewportClient* PreviewClient = SkeletalMeshEditorPanel->GetViewportClient();
+	if (!PreviewClient) return;
+
+	FSceneRenderOptions Options;
+	BuildSceneRenderOptions(PreviewClient, false, Options);
+	Options.bShowBoneWeight = SkeletalMeshEditorPanel->IsBoneWeightEnabled();
+	Options.BoneWeightBoneIndex = SkeletalMeshEditorPanel->GetBoneWeightBoneIndex();
+	if (Options.bShowBoneWeight)
+		Options.LightingModel = ELightingModel::Unlit; // Weight 표시에는 조명과 그림자 준비가 필요 없다.
+
+	RenderPanelPreviewWorld(SkeletalMeshEditorPanel->GetPreviewWorld(), PreviewClient, Options, SkeletalMeshEditorPanel->IsRenderGrid(),
+		[this](FSceneOverlayCallbacks& Overlays, const FSceneView& SceneView, const FSceneViewTargets&)
+		{
 			if (SkeletalMeshEditorPanel->IsRenderBones())
 			{
 				Overlays.EditorBones = [this, &SceneView]
@@ -993,12 +1019,10 @@ void UEditorEngine::RenderSkeletalMeshPreview()
 						GizmoRenderer->OnRender(
 							SkeletalMeshEditorPanel->GetBoneGizmo(),
 							SceneView.ViewProjectionMatrix,
-							SceneView.ViewLocation, 
+							SceneView.ViewLocation,
 							!SceneView.bIsPerspective);
 					};
 			}
-			
-			Overlays.bClearEditorDepth = true;
 		});
 }
 
@@ -1007,13 +1031,8 @@ void UEditorEngine::RenderAnimationSequencePreview()
 {
 	if (!AnimationSequenceEditorPanel || !AnimationSequenceEditorPanel->IsOpen()) return;
 
-	UWorld* PreviewWorld = AnimationSequenceEditorPanel->GetPreviewWorld();
 	FEditorViewportClient* PreviewClient = AnimationSequenceEditorPanel->GetViewportClient();
-	if (!PreviewWorld ||
-		!PreviewClient ||
-		PreviewClient->GetWidth() == 0 ||
-		PreviewClient->GetHeight() == 0 ||
-		!PreviewClient->GetColorTarget()) return;
+	if (!PreviewClient) return;
 
 	FSceneRenderOptions Options;
 	BuildSceneRenderOptions(PreviewClient, false, Options);
@@ -1023,40 +1042,9 @@ void UEditorEngine::RenderAnimationSequencePreview()
 	if (Options.bShowBoneWeight)
 		Options.LightingModel = ELightingModel::Unlit;
 
-	const FSceneView SceneView = PreviewClient->CalcSceneView();
-
-	FSceneRenderer SceneRenderer(PreviewWorld, SceneView, PreviewClient->GetRenderData());
-	SceneRenderer.InitViews(Renderer, Options);
-
-	FSceneViewTargets& Targets = PreviewClient->GetViewTargets();
-	RenderScene(Targets, SceneView, SceneRenderer, PreviewWorld, Options,
-		[this, &SceneView, &Targets](FSceneOverlayCallbacks& Overlays)
+	RenderPanelPreviewWorld(AnimationSequenceEditorPanel->GetPreviewWorld(), PreviewClient, Options, AnimationSequenceEditorPanel->IsRenderGrid(),
+		[this](FSceneOverlayCallbacks& Overlays, const FSceneView& SceneView, const FSceneViewTargets&)
 		{
-			if (AnimationSequenceEditorPanel->IsRenderGrid())
-			{
-				const FViewportSettings ViewportSettings
-				{
-					.StartX = 0,
-					.StartY = 0,
-					.Width = Targets.SceneColor->GetWidth(),
-					.Height = Targets.SceneColor->GetHeight(),
-					.MinDepth = 0.0f,
-					.MaxDepth = 1.0f,
-				};
-
-				Overlays.EditorGrid = [this, &SceneView, ViewportSettings]
-					{
-						GridRenderer->OnRenderBatchGrid(
-							SceneView.ViewProjectionMatrix,
-							SceneView.ViewLocation,
-							SceneView.ViewForward,
-							EGridPlane::XY,
-							static_cast<float>(SettingsPanel->GetSettings().GridSpacing),
-							SceneView.bIsPerspective,
-							ViewportSettings);
-					};
-			}
-
 			if (AnimationSequenceEditorPanel->IsRenderBones())
 			{
 				Overlays.EditorBones = [this, &SceneView]
@@ -1068,9 +1056,20 @@ void UEditorEngine::RenderAnimationSequencePreview()
 							SceneView.ViewLocation);
 					};
 			}
-
-			Overlays.bClearEditorDepth = true;
 		});
+}
+
+void UEditorEngine::RenderBlendSpacePreview()
+{
+	if (!AnimationBlendEditorPanel || !AnimationBlendEditorPanel->IsOpen()) return;
+
+	FEditorViewportClient* PreviewClient = AnimationBlendEditorPanel->GetViewportClient();
+	if (!PreviewClient) return;
+
+	FSceneRenderOptions Options;
+	BuildSceneRenderOptions(PreviewClient, false, Options);
+
+	RenderPanelPreviewWorld(AnimationBlendEditorPanel->GetPreviewWorld(), PreviewClient, Options, AnimationBlendEditorPanel->IsRenderGrid());
 }
 
 void UEditorEngine::TickPIEInput(float DeltaTime)
@@ -1602,198 +1601,6 @@ void UEditorEngine::PresentFrame()
 
 		EditorUI->OnRender();
 
-		if (bBlendSpaceWindowOpen)
-		{
-			AActor* Selected = OutlinerPanel ? OutlinerPanel->GetSelectedActor() : nullptr;
-			USkeletalMeshComponent* SkelComp = nullptr;
-			if (Selected)
-			{
-				for (UActorComponent* Candidate : Selected->GetComponents())
-				{
-					if ((SkelComp = Cast<USkeletalMeshComponent>(Candidate))) break;
-				}
-			}
-			UBlendSpaceAnimInstance* FallbackInst = (PlayWorld && GPIEBlendSpaceAnimInst) ? GPIEBlendSpaceAnimInst : GPreviewBlendSpaceAnimInst;
-			FAnimNode_BlendSpacePlayer* BSPlayer = nullptr;
-			float* SpeedPtr = nullptr;
-			if (SkelComp && SkelComp->GetAnimInstance())
-			{
-				if (auto* BSInst = dynamic_cast<UBlendSpaceAnimInstance*>(SkelComp->GetAnimInstance()))
-				{
-					BSPlayer = &BSInst->BlendSpacePlayer;
-					SpeedPtr = &BSInst->Speed;
-				}
-				else if (auto* CharInst = Cast<UCharacterAnimInstance>(SkelComp->GetAnimInstance()))
-				{
-					if (FAnimNode_BlendSpacePlayer* LocBS = CharInst->GetLocomotionBlendSpace())
-					{
-						BSPlayer = LocBS;
-						SpeedPtr = &LocBS->X;
-					}
-				}
-			}
-			if (!BSPlayer && FallbackInst)
-			{
-				BSPlayer = &FallbackInst->BlendSpacePlayer;
-				SpeedPtr = &FallbackInst->Speed;
-			}
-
-			if (BSPlayer && SpeedPtr)
-			{
-				ImGui::SetNextWindowSize(ImVec2(520, 310), ImGuiCond_FirstUseEver);
-				if (ImGui::Begin("BlendSpace 1D Editor", &bBlendSpaceWindowOpen))
-				{
-					UBlendSpace* BS = BSPlayer->BlendSpace.get();
-					const float MinX = (BS && BS->SampleData.Num() > 0) ? BS->SampleData[0].SamepleVector.X : 0.0f;
-					const float MaxX = (BS && BS->SampleData.Num() > 0) ? BS->SampleData[BS->SampleData.Num() - 1].SamepleVector.X : 600.0f;
-					const float RangeX = std::max(MaxX - MinX, 1.0f);
-
-					ImGui::Text("1D Blend Space Canvas (Click & Drag to Preview)");
-
-					// 캔버스 크기 및 위치 계산
-					const float CanvasWidth = ImGui::GetContentRegionAvail().x;
-					const float CanvasHeight = 110.0f;
-					const ImVec2 CanvasSize(CanvasWidth, CanvasHeight);
-					const ImVec2 CanvasP0 = ImGui::GetCursorScreenPos();
-					const ImVec2 CanvasP1 = ImVec2(CanvasP0.x + CanvasSize.x, CanvasP0.y + CanvasSize.y);
-					const float PaddingX = 24.0f;
-					const float UsableWidth = std::max(CanvasSize.x - PaddingX * 2.0f, 10.0f);
-					const float RailY = CanvasP0.y + CanvasHeight * 0.5f;
-
-					ImDrawList* DrawList = ImGui::GetWindowDrawList();
-
-					// 투명 버튼으로 마우스 이벤트 캡처
-					ImGui::InvisibleButton("##BSCanvas", CanvasSize, ImGuiButtonFlags_MouseButtonLeft);
-					const bool bCanvasHovered = ImGui::IsItemHovered();
-					const bool bCanvasActive = ImGui::IsItemActive();
-
-					// 마우스 클릭 또는 드래그 시 Speed 값 갱신
-					if (bCanvasActive)
-					{
-						const float MouseX = ImGui::GetIO().MousePos.x;
-						const float ClampedMouseX = std::clamp(MouseX, CanvasP0.x + PaddingX, CanvasP0.x + PaddingX + UsableWidth);
-						const float NormalizedRatio = (ClampedMouseX - (CanvasP0.x + PaddingX)) / UsableWidth;
-						*SpeedPtr = MinX + NormalizedRatio * RangeX;
-					}
-
-					// 1. 배경 및 테두리
-					DrawList->AddRectFilled(CanvasP0, CanvasP1, IM_COL32(24, 24, 27, 255), 6.0f);
-					DrawList->AddRect(CanvasP0, CanvasP1, IM_COL32(65, 65, 75, 255), 6.0f);
-
-					// 2. 그리드 수직선 및 수치 눈금 라벨
-					const int32 NumDivisions = 4;
-					for (int32 i = 0; i <= NumDivisions; ++i)
-					{
-						const float Frac = static_cast<float>(i) / static_cast<float>(NumDivisions);
-						const float LineVal = MinX + Frac * RangeX;
-						const float LineX = CanvasP0.x + PaddingX + Frac * UsableWidth;
-
-						DrawList->AddLine(ImVec2(LineX, CanvasP0.y + 4.0f), ImVec2(LineX, CanvasP1.y - 4.0f), IM_COL32(45, 45, 52, 255), 1.0f);
-
-						char LabelBuf[32];
-						snprintf(LabelBuf, sizeof(LabelBuf), "%.1f", LineVal);
-						DrawList->AddText(ImVec2(LineX - 8.0f, CanvasP1.y - 18.0f), IM_COL32(130, 130, 140, 255), LabelBuf);
-					}
-
-					// 3. 메인 트랙 레일 라인
-					DrawList->AddLine(ImVec2(CanvasP0.x + PaddingX, RailY), ImVec2(CanvasP0.x + PaddingX + UsableWidth, RailY), IM_COL32(80, 80, 95, 255), 2.0f);
-
-					// 4. 등록된 샘플 포인트 및 가중치 링
-					const auto& Cache = BSPlayer->BlendSampleDataCache;
-					if (BS)
-					{
-						for (int32 i = 0; i < BS->SampleData.Num(); ++i)
-						{
-							const auto& Sample = BS->SampleData[i];
-							const float SampleRatio = (Sample.SamepleVector.X - MinX) / RangeX;
-							const float SampleX = CanvasP0.x + PaddingX + SampleRatio * UsableWidth;
-
-							// 캐시에서 가중치 검색
-							float SampleWeight = 0.0f;
-							for (const auto& CachedData : Cache)
-							{
-								if (CachedData.SampleDataIndex == i)
-								{
-									SampleWeight = CachedData.TotalWeight;
-									break;
-								}
-							}
-
-							// 가중치에 비례하는 활성 원형 링
-							if (SampleWeight > 0.001f)
-							{
-								const float RingRadius = 6.0f + SampleWeight * 16.0f;
-								DrawList->AddCircleFilled(ImVec2(SampleX, RailY), RingRadius, IM_COL32(40, 200, 100, static_cast<int>(SampleWeight * 90)));
-								DrawList->AddCircle(ImVec2(SampleX, RailY), RingRadius, IM_COL32(60, 240, 120, static_cast<int>(SampleWeight * 220)), 24, 2.0f);
-							}
-
-							// 기본 샘플 마커 (원형 포인트)
-							DrawList->AddCircleFilled(ImVec2(SampleX, RailY), 5.5f, IM_COL32(50, 130, 240, 255));
-							DrawList->AddCircle(ImVec2(SampleX, RailY), 5.5f, IM_COL32(230, 230, 240, 255), 16, 1.5f);
-
-							// 샘플 이름 텍스트
-							if (Sample.Animation)
-							{
-								const std::string FullName = Sample.Animation->GetName();
-								const size_t Sep = FullName.find_last_of('/');
-								const std::string ShortName = (Sep != std::string::npos) ? FullName.substr(Sep + 1) : FullName;
-								const ImVec2 TextSize = ImGui::CalcTextSize(ShortName.c_str());
-								DrawList->AddText(ImVec2(SampleX - TextSize.x * 0.5f, RailY - 24.0f), IM_COL32(210, 210, 220, 255), ShortName.c_str());
-							}
-
-							// 마우스 호버 시 툴팁
-							const ImVec2 MousePos = ImGui::GetIO().MousePos;
-							const float DistSq = (MousePos.x - SampleX) * (MousePos.x - SampleX) + (MousePos.y - RailY) * (MousePos.y - RailY);
-							if (bCanvasHovered && DistSq <= 120.0f)
-							{
-								ImGui::SetTooltip("%s\nSpeed: %.1f\nWeight: %.3f", 
-									Sample.Animation ? Sample.Animation->GetName().c_str() : "None",
-									Sample.SamepleVector.X, SampleWeight);
-							}
-						}
-					}
-
-					// 5. 현재 미리보기 커서 (녹색 수직선 & 십자선 포인트)
-					const float ClampedSpeed = std::clamp(*SpeedPtr, MinX, MaxX);
-					const float CursorRatio = (ClampedSpeed - MinX) / RangeX;
-					const float CursorX = CanvasP0.x + PaddingX + CursorRatio * UsableWidth;
-
-					// 수직 가이드라인
-					DrawList->AddLine(ImVec2(CursorX, CanvasP0.y + 4.0f), ImVec2(CursorX, CanvasP1.y - 4.0f), IM_COL32(50, 240, 90, 180), 1.5f);
-
-					// 중심 커서 마커
-					DrawList->AddCircleFilled(ImVec2(CursorX, RailY), 7.5f, IM_COL32(40, 245, 80, 255));
-					DrawList->AddCircle(ImVec2(CursorX, RailY), 7.5f, IM_COL32(255, 255, 255, 255), 18, 2.0f);
-
-					// 커서 상단 수치 배지
-					char CursorBuf[32];
-					snprintf(CursorBuf, sizeof(CursorBuf), "%.1f", ClampedSpeed);
-					const ImVec2 CursorTextSize = ImGui::CalcTextSize(CursorBuf);
-					DrawList->AddRectFilled(ImVec2(CursorX - CursorTextSize.x * 0.5f - 4.0f, CanvasP0.y + 5.0f),
-						ImVec2(CursorX + CursorTextSize.x * 0.5f + 4.0f, CanvasP0.y + 5.0f + CursorTextSize.y + 2.0f),
-						IM_COL32(20, 20, 20, 220), 3.0f);
-					DrawList->AddText(ImVec2(CursorX - CursorTextSize.x * 0.5f, CanvasP0.y + 6.0f), IM_COL32(70, 255, 110, 255), CursorBuf);
-
-					// 6. 하단 미세 조정 슬라이더 및 재생 시간 바
-					ImGui::Spacing();
-					ImGui::SliderFloat("Speed", SpeedPtr, MinX, MaxX, "%.2f");
-					if (GPreviewBlendSpaceAnimInst && FallbackInst && BSPlayer == &FallbackInst->BlendSpacePlayer)
-					{
-						GPreviewBlendSpaceAnimInst->Speed = *SpeedPtr;
-					}
-
-					const float NormTime = BSPlayer->InternalTimeAccumulator;
-					char TimeBuf[64];
-					snprintf(TimeBuf, sizeof(TimeBuf), "Time Loop: %.2f", NormTime);
-					ImGui::ProgressBar(NormTime, ImVec2(-1, 8), TimeBuf);
-
-					ImGui::Spacing();
-					ImGui::TextDisabled("Tip: Drag the green cursor inside the canvas to smoothly blend locomotion.");
-				}
-				ImGui::End();
-			}
-		}
-
 		ImGuiRenderer->End();
 	}
 
@@ -1813,6 +1620,7 @@ void UEditorEngine::PreExit()
 	if (AnimationStateMachinePanel) AnimationStateMachinePanel->Shutdown();
 	if (SkeletalMeshEditorPanel) DestroyWorld(SkeletalMeshEditorPanel->ReleasePreviewWorld());
 	if (AnimationSequenceEditorPanel) DestroyWorld(AnimationSequenceEditorPanel->ReleasePreviewWorld());
+	if (AnimationBlendEditorPanel) DestroyWorld(AnimationBlendEditorPanel->ReleasePreviewWorld());
 	EditorWorld->ClearWorld();
 	// PIE 창이 열린 채 종료하면 Device가 살아 있을 때 Swapchain과 타깃을 먼저 정리한다.
 	DestroyPIEWindow();

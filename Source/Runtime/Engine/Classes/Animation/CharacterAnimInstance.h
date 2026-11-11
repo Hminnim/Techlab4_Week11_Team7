@@ -6,6 +6,7 @@
 #include "CharacterAnimInstance.generated.h"
 
 class UAnimSequence;
+struct FAnimNode_TwoWayBlend;
 
 struct FCharacterJumpClips
 {
@@ -41,7 +42,12 @@ public:
 
 	void SetSpeed(float InSpeed) { Speed = InSpeed; }
 	float GetSpeed() const { return Speed; }
+	void SetSpeedOverride(bool bEnabled, float InSpeed = 0.0f);
+	bool IsSpeedOverrideEnabled() const { return bOverrideSpeed; }
+	float GetSpeedOverride() const { return OverrideSpeed; }
 	FAnimNode_BlendSpacePlayer* GetLocomotionBlendSpace() const { return LocomotionBlendSpace; }
+	FAnimNode_BlendSpacePlayer* FindBlendSpacePlayer();
+	FAnimNode_TwoWayBlend* FindTwoWayBlend();
 	void RequestAttack() { bPendingAttack = true; }
 	void SetAttackTransitionRule(std::function<bool(bool)> Rule);
 	void RequestHit() { bPendingHit = true; }
@@ -67,6 +73,8 @@ private:
 	int32 JumpFromState = -1;
 	EJumpPhase JumpPhase = EJumpPhase::Grounded;
 	float Speed = 0.0f;
+	float OverrideSpeed = 0.0f;
+	bool bOverrideSpeed = false;
 	bool bPendingAttack = false;
 	bool bPendingHit = false;
 	bool bAttackRequested = false;

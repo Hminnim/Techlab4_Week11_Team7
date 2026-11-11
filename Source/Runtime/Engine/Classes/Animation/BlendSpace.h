@@ -26,6 +26,8 @@ public:
 
 	int32 AddSample(const FVector& SampleValue);
 	int32 AddSample(UAnimSequence* Animation, const FVector& SampleValue);
+	bool RemoveSample(int32 SampleIndex);
+	void SortSamples();
 
 	const FBlendSample& GetBlendSample(int32 SampleIndex) const { return SampleData[SampleIndex]; }
 	int32 GetNumberOfBlendSamples() const { return SampleData.Num(); }
