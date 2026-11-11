@@ -1,7 +1,10 @@
 -- UAL1_Standard 스켈레탈 메시 액터의 ScriptPath에 연결한 뒤 PIE에서 사용한다.
 -- CharacterCamera가 있는 액터는 WASD 이동, Shift 달리기, 좌클릭 공격을 사용한다.
+-- R 루트 모션 켜기/끄기.
 local pack = "Assets/Models/UAL1/UAL1_Standard.fbx"
 local locomotionPack = "Assets/Models/UAL1/UAL1_Standard_RM.fbx"
+-- locomotionPack에서 재생하는 클립. 피격/점프는 제자리 pack을 쓰므로 토글 대상이 아니다.
+local rootMotionTakes = { "Idle_Loop", "Walk_Loop", "Sprint_Loop", "Sword_Attack" }
 local walkSpeed = 1.0
 local sprintSpeed = 3.0
 local previewSpeed
@@ -23,11 +26,19 @@ local function ResetJump()
     jumpElapsed = nil
 end
 
+-- 클립 플래그는 에셋에 남는다. 켠 상태는 script_state에 둬서 핫 리로드 뒤에도 유지한다.
+local function SetRootMotion(enabled)
+    for _, take in ipairs(rootMotionTakes) do
+        SetAnimRootMotion(locomotionPack, take, enabled)
+    end
+    script_state.rootMotion = enabled
+    print("[RootMotion] " .. (enabled and "ON" or "OFF"))
+end
+
 local function Setup()
-    SetAnimRootMotion(locomotionPack, "Walk_Loop", true)
-    SetAnimRootMotion(locomotionPack, "Sprint_Loop", true)
+    SetRootMotion(script_state.rootMotion ~= false)
     ready = obj:ConfigureCharacterAnimations(
-        locomotionPack, pack, pack,
+        locomotionPack, locomotionPack, pack,
         "Armature|Idle_Loop", "Armature|Sword_Attack", "Armature|Hit_Chest",
         {
             path = pack,
@@ -48,7 +59,6 @@ local function Setup()
     obj:SetAnimAttackRule(function(requested)
         return requested and attackEnabled
     end)
-    obj:SetRestartHitOnReentry(script_state.restartHit == true)
     if hasFollowCamera then
         obj:ResetCameraLag()
         SetViewTargetWithBlend(obj, 0)
@@ -122,14 +132,15 @@ function Tick(dt)
         obj:RequestAnimHit()
     end
     if IsKeyPressed("R") then
-        script_state.restartHit = not script_state.restartHit
-        obj:SetRestartHitOnReentry(script_state.restartHit)
+        SetRootMotion(not script_state.rootMotion)
     end
     UpdateJump(dt)
 end
 
 function EndPlay()
     ResetJump()
+    -- 클립 플래그는 에셋에 남으므로 다른 스크립트에 영향이 없게 끈다.
+    SetRootMotion(false)
 end
 
 function OnAnimNotify(notifyName, clipName)
