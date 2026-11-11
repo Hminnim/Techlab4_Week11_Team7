@@ -45,6 +45,17 @@ namespace
 		Batch.SkinWeightBuffer = Geometry.SkinWeightBuffer;
 		Batch.SkinningMatrixBuffer = Geometry.SkinningMatrixBuffer;
 		Batch.bSkeletalMesh = Geometry.bSkeletalMesh;
+		if (Pass == EMeshPassType::BoneWeight)
+		{
+			FPipelineState* Pipeline = FRenderResourceManager::GetPSO(EPSOType::SkeletalMesh_BoneWeight);
+			if (!Pipeline || !Pipeline->Shader || !Pipeline->Shader->VertexShader || !Pipeline->Shader->PixelShader)
+				return false;
+			Batch.Pipeline = *Pipeline;
+			// 프리뷰는 오브젝트 상수를 직접 올린다. 원본 재질과 텍스처는 사용하지 않는다.
+			Batch.bUseObjectSlots = false;
+			Batch.MaterialStages = EShaderBindFlagBits::Vertex;
+			return true;
+		}
 		const bool bUsesUberShader = Pass == EMeshPassType::Forward || Pass == EMeshPassType::WorldNormal;
 		if (bUsesUberShader)
 		{
@@ -187,7 +198,7 @@ bool FMeshPassProcessor::Build(const FSceneView& View, const FRenderQueue& Queue
 	TArray<FMeshDrawBatch>& Out, ELightingModel LightingModel) const
 {
 	Out.Reset();
-	if (Pass != EMeshPassType::Translucent && SceneData)
+	if (Pass != EMeshPassType::Translucent && Pass != EMeshPassType::BoneWeight && SceneData)
 	{
 		TArray<const FStaticDrawGroup*> Groups;
 		for (const FSceneRenderData::FGatherChunk& Chunk : SceneData->GatherChunks)
@@ -212,11 +223,19 @@ bool FMeshPassProcessor::Build(const FSceneView& View, const FRenderQueue& Queue
 		}
 	}
 	const uint32 Begin = Pass == EMeshPassType::Translucent ? Queue.GetFirstTranslucentIndex() : 0;
-	const uint32 End = Pass == EMeshPassType::Translucent ? Queue.Num() : Queue.GetFirstTranslucentIndex();
+	// Heatmap은 원본 재질의 불투명/반투명 구분과 관계없이 GPU 스키닝 Section을 모두 그린다.
+	const uint32 End = Pass == EMeshPassType::Translucent || Pass == EMeshPassType::BoneWeight
+		? Queue.Num() : Queue.GetFirstTranslucentIndex();
 	Out.Reserve(Out.Num() + End - Begin);
 	for (uint32 Index = Begin; Index < End; ++Index)
 	{
 		const FRenderPacket& Packet = Queue[Index];
+		if (Pass == EMeshPassType::BoneWeight)
+		{
+			const FMeshGeometry Geometry = Packet.GetGeometry();
+			if (!Geometry.bSkeletalMesh || !Geometry.SkinWeightBuffer || !Geometry.SkinningMatrixBuffer)
+				continue;
+		}
 		if (Pass == EMeshPassType::WorldNormal &&
 			(!Packet.Material || Packet.Material->PSOType != EPSOType::StaticMesh_Opaque)) continue;
 		FMeshDrawBatch Batch;

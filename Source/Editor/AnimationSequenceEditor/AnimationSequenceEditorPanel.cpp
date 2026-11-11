@@ -106,6 +106,16 @@ void FAnimationSequenceEditorPanel::OnRender()
 	if (ImGui::Begin(GetPanelName(), &bPanelOpen))
 	{
 		ImGui::Checkbox("Grid", &bRenderGrid);
+		ImGui::SameLine();
+		const bool bCanShowBoneWeight = USkeletalMeshComponent::IsGPUSkinningEnabled() &&
+			PreviewMeshComponent && PreviewMeshComponent->GetSkeletalMesh();
+		ImGui::BeginDisabled(!bCanShowBoneWeight);
+		ImGui::Checkbox("Bone Weight", &bShowBoneWeight);
+		ImGui::EndDisabled();
+		if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+			ImGui::SetTooltip(bCanShowBoneWeight
+				? "Select a bone in the hierarchy to view its weights."
+				: "Requires GPU skinning and a skeletal mesh.");
 		DrawSequenceInfo();
 
 		const ImGuiStyle& Style = ImGui::GetStyle();
@@ -116,7 +126,23 @@ void FAnimationSequenceEditorPanel::OnRender()
 		const ImGuiWindowFlags ChildFlags = ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse;
 
 		if (ImGui::BeginChild("##AnimationPreview", { 0.0f, PreviewHeight }, ImGuiChildFlags_Borders, ChildFlags))
-			DrawViewport();
+		{
+			// 계층만 스크롤하고, 타임라인과 재생 컨트롤은 프리뷰 아래에 그대로 둔다.
+			if (ImGui::BeginTable("##AnimationPreviewLayout", 2,
+				ImGuiTableFlags_Resizable | ImGuiTableFlags_BordersInnerV))
+			{
+				ImGui::TableSetupColumn("Skeleton", ImGuiTableColumnFlags_WidthFixed, 220.0f);
+				ImGui::TableSetupColumn("Viewport", ImGuiTableColumnFlags_WidthStretch);
+				ImGui::TableNextColumn();
+				if (ImGui::BeginChild("##AnimationBoneHierarchy", { 0.0f, 0.0f },
+					ImGuiChildFlags_None, ImGuiWindowFlags_HorizontalScrollbar))
+					DrawBoneHierarchy();
+				ImGui::EndChild();
+				ImGui::TableNextColumn();
+				DrawViewport();
+				ImGui::EndTable();
+			}
+		}
 		ImGui::EndChild();
 
 		if (ImGui::BeginChild("##AnimationTimeline", { 0.0f, TimelineHeight }, ImGuiChildFlags_Borders, ChildFlags))
@@ -151,6 +177,17 @@ bool FAnimationSequenceEditorPanel::OpenAsset(UAnimSequence* InSequence, USkelet
 
 	PreviewMeshComponent->SetSkeletalMesh(InSkeletalMesh);
 	if (PreviewMeshComponent->GetSkeletalMesh() != InSkeletalMesh) return false;
+	// 클립/메시 교체 시 이전 본 선택을 지우고, 변하지 않는 계층은 한 번만 구성한다.
+	SelectedBoneIndex = -1;
+	const auto& Bones = InSkeletalMesh->GetRefSkeleton().RawRefBoneInfo;
+	BoneChildren.Reset();
+	BoneChildren.SetNum(Bones.Num());
+	for (int32 BoneIndex = 0; BoneIndex < Bones.Num(); ++BoneIndex)
+	{
+		const int32 ParentIndex = Bones[BoneIndex].ParentIndex;
+		if (BoneChildren.IsValidIndex(ParentIndex))
+			BoneChildren[ParentIndex].Add(BoneIndex);
+	}
 	PreviewMeshComponent->ResetToReferencePose();
 	EditSequence = InSequence;
 	bPlaying = false;
@@ -735,6 +772,74 @@ void FAnimationSequenceEditorPanel::DrawSelectedNotifyInspector()
 	}
 }
 
+bool FAnimationSequenceEditorPanel::IsBoneWeightEnabled() const
+{
+	return bShowBoneWeight && USkeletalMeshComponent::IsGPUSkinningEnabled() &&
+		PreviewMeshComponent && PreviewMeshComponent->GetSkeletalMesh();
+}
+
+int32 FAnimationSequenceEditorPanel::GetBoneWeightBoneIndex() const
+{
+	if (!IsBoneWeightEnabled() ||
+		!PreviewMeshComponent->GetSkeletalMesh()->GetRefSkeleton().RawRefBoneInfo.IsValidIndex(SelectedBoneIndex))
+		return -1;
+	return SelectedBoneIndex;
+}
+
+void FAnimationSequenceEditorPanel::DrawBoneHierarchy()
+{
+	ImGui::SeparatorText("Bone Hierarchy");
+	const USkeletalMesh* Mesh = PreviewMeshComponent ? PreviewMeshComponent->GetSkeletalMesh() : nullptr;
+	if (!Mesh)
+	{
+		ImGui::TextDisabled("Open an animation to view its skeleton.");
+		return;
+	}
+
+	ImGui::BeginDisabled(SelectedBoneIndex < 0);
+	if (ImGui::Button("Clear Selection")) SelectedBoneIndex = -1;
+	ImGui::EndDisabled();
+
+	const auto& Bones = Mesh->GetRefSkeleton().RawRefBoneInfo;
+	for (int32 BoneIndex = 0; BoneIndex < Bones.Num(); ++BoneIndex)
+	{
+		if (Bones[BoneIndex].ParentIndex < 0)
+			DrawBoneTreeNode(BoneIndex);
+	}
+	if (ImGui::IsWindowHovered() && !ImGui::IsAnyItemHovered() &&
+		ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+		SelectedBoneIndex = -1;
+}
+
+void FAnimationSequenceEditorPanel::DrawBoneTreeNode(int32 BoneIndex)
+{
+	const USkeletalMesh* Mesh = PreviewMeshComponent ? PreviewMeshComponent->GetSkeletalMesh() : nullptr;
+	if (!Mesh || !BoneChildren.IsValidIndex(BoneIndex)) return;
+	const auto& Bones = Mesh->GetRefSkeleton().RawRefBoneInfo;
+	if (!Bones.IsValidIndex(BoneIndex)) return;
+
+	const bool bIsLeaf = BoneChildren[BoneIndex].IsEmpty();
+	ImGuiTreeNodeFlags Flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_OpenOnDoubleClick |
+		ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_DefaultOpen;
+	if (bIsLeaf) Flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
+	if (BoneIndex == SelectedBoneIndex) Flags |= ImGuiTreeNodeFlags_Selected;
+
+	const FString Name = Bones[BoneIndex].Name.ToString();
+	ImGui::PushID(BoneIndex);
+	const bool bOpen = ImGui::TreeNodeEx("##Bone", Flags, "%s", Name.c_str());
+	ImGui::PopID();
+	if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s (Index: %d)", Name.c_str(), BoneIndex);
+	if (ImGui::IsItemClicked(ImGuiMouseButton_Left) && !ImGui::IsItemToggledOpen())
+		SelectedBoneIndex = BoneIndex;
+
+	if (bOpen && !bIsLeaf)
+	{
+		for (int32 ChildIndex : BoneChildren[BoneIndex])
+			DrawBoneTreeNode(ChildIndex);
+		ImGui::TreePop();
+	}
+}
+
 UWorld* FAnimationSequenceEditorPanel::ReleasePreviewWorld()
 {
 	// 월드를 삭제하기 전에 관찰 참조부터 해제
@@ -748,6 +853,8 @@ UWorld* FAnimationSequenceEditorPanel::ReleasePreviewWorld()
 	CurrentTime = 0.0f;
 	TimelineView = {};
 	bFitTimeline = true;
+	SelectedBoneIndex = -1;
+	BoneChildren.Reset();
 	PreviewMeshComponent = nullptr;
 
 	UWorld* ReleasedWorld = PreviewWorld;
@@ -759,6 +866,17 @@ UWorld* FAnimationSequenceEditorPanel::ReleasePreviewWorld()
 // 프리뷰 캐릭터를 보여주는 뷰포트 영역을 그립니다.
 void FAnimationSequenceEditorPanel::DrawViewport()
 {
+	if (IsBoneWeightEnabled())
+	{
+		const int32 BoneIndex = GetBoneWeightBoneIndex();
+		if (BoneIndex >= 0)
+			ImGui::TextWrapped("Bone Weight: %s",
+				PreviewMeshComponent->GetSkeletalMesh()->GetRefSkeleton().RawRefBoneInfo[BoneIndex].Name.ToString().c_str());
+		else
+			ImGui::TextDisabled("No bone selected: Weight 0 (Purple).");
+		ImGui::TextDisabled("0 Purple > Blue > Green > Yellow > Red 1");
+	}
+
 	const ImVec2 ViewportSize = ImGui::GetContentRegionAvail();
 	const uint32 Width = static_cast<uint32>(std::max(1.0f, ViewportSize.x));
 	const uint32 Height = static_cast<uint32>(std::max(1.0f, ViewportSize.y));
@@ -773,6 +891,9 @@ void FAnimationSequenceEditorPanel::DrawViewport()
 		ImGui::InvisibleButton("##AnimationPreviewViewport", Size, ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight);
 		ImGui::GetWindowDrawList()->AddImage(ViewportClient.GetColorTarget()->GetSRV(), Min, ImVec2(Min.x + Size.x, Min.y + Size.y));
 		TickCameraInput(); 
+		// 프리뷰 클릭은 선택만 해제한다. Heatmap 모드는 유지해 메시를 보라색으로 표시한다.
+		if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+			SelectedBoneIndex = -1;
 	}
 }
 

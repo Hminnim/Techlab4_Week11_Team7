@@ -33,6 +33,9 @@ public:
 	bool OpenAsset(const FString& Path);
 	const FSkeletalPose& GetPreviewPose() const { return PreviewPose; }
 	int32 GetSelectedBoneIndex() const { return SelectedBoneIndex; }
+	// 표시 모드는 본 선택과 독립적이다. 선택이 없으면 Heatmap을 보라색으로 유지한다.
+	bool IsBoneWeightEnabled() const;
+	int32 GetBoneWeightBoneIndex() const;
 
 private:
 	void TickCameraInput();
@@ -69,6 +72,7 @@ private:
 	bool bRenderGrid = false;
 	bool bRenderMesh = true;
 	bool bRenderBones = true;
+	bool bShowBoneWeight = false;
 
 	FString CurrentAssetPath;
 	FReferenceSkeleton ReferenceSkeleton;

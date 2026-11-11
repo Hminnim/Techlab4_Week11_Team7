@@ -935,6 +935,10 @@ void UEditorEngine::RenderSkeletalMeshPreview()
 
 	FSceneRenderOptions Options;
 	BuildSceneRenderOptions(PreviewClient, false, Options);
+	Options.bShowBoneWeight = SkeletalMeshEditorPanel->IsBoneWeightEnabled();
+	Options.BoneWeightBoneIndex = SkeletalMeshEditorPanel->GetBoneWeightBoneIndex();
+	if (Options.bShowBoneWeight)
+		Options.LightingModel = ELightingModel::Unlit; // Weight 표시에는 조명과 그림자 준비가 필요 없다.
 
 	const FSceneView SceneView = PreviewClient->CalcSceneView();
 
@@ -1013,6 +1017,11 @@ void UEditorEngine::RenderAnimationSequencePreview()
 
 	FSceneRenderOptions Options;
 	BuildSceneRenderOptions(PreviewClient, false, Options);
+	// 재생/스크럽은 현재 포즈만 갱신하고, Weight 표시는 기존 Viewer 패스를 공유한다.
+	Options.bShowBoneWeight = AnimationSequenceEditorPanel->IsBoneWeightEnabled();
+	Options.BoneWeightBoneIndex = AnimationSequenceEditorPanel->GetBoneWeightBoneIndex();
+	if (Options.bShowBoneWeight)
+		Options.LightingModel = ELightingModel::Unlit;
 
 	const FSceneView SceneView = PreviewClient->CalcSceneView();
 

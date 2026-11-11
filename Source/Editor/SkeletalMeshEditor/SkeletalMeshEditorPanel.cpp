@@ -372,9 +372,32 @@ void FSkeletalMeshEditorPanel::TickShortcut()
 	}
 }
 
+bool FSkeletalMeshEditorPanel::IsBoneWeightEnabled() const
+{
+	return bShowBoneWeight && USkeletalMeshComponent::IsGPUSkinningEnabled() &&
+		PreviewMeshComponent && PreviewMeshComponent->GetSkeletalMesh();
+}
+
+int32 FSkeletalMeshEditorPanel::GetBoneWeightBoneIndex() const
+{
+	if (!IsBoneWeightEnabled() ||
+		SelectedBoneIndex < 0 || SelectedBoneIndex >= ReferenceSkeleton.RawRefBoneInfo.Num())
+		return -1;
+	return SelectedBoneIndex;
+}
+
 void FSkeletalMeshEditorPanel::DrawViewport()
 {
 	DrawGizmoToolbar();
+	if (bShowBoneWeight && USkeletalMeshComponent::IsGPUSkinningEnabled())
+	{
+		const int32 BoneIndex = GetBoneWeightBoneIndex();
+		if (BoneIndex >= 0)
+			ImGui::Text("Bone Weight: %s | 0 Purple > Blue > Green > Yellow > Red 1",
+				ReferenceSkeleton.RawRefBoneInfo[BoneIndex].Name.ToString().c_str());
+		else
+			ImGui::TextDisabled("No bone selected: Weight 0 (Purple).");
+	}
 
 	const ImVec2 ViewportSize = ImGui::GetContentRegionAvail();
 	const uint32 Width = static_cast<uint32>(std::max(1.0f, ViewportSize.x));
@@ -661,7 +684,8 @@ void FSkeletalMeshEditorPanel::DrawGizmoToolbar()
 			return ImGui::GetFrameHeight() + Style.ItemInnerSpacing.x + ImGui::CalcTextSize(Label, nullptr, true).x;
 		};
 
-	const float ButtonsWidth = GetCheckboxWidth("Grid") + GetCheckboxWidth("Mesh") + GetCheckboxWidth("Bones") + Style.ItemSpacing.x * 2.0f;
+	const float ButtonsWidth = GetCheckboxWidth("Grid") + GetCheckboxWidth("Mesh") +
+		GetCheckboxWidth("Bones") + GetCheckboxWidth("Bone Weight") + Style.ItemSpacing.x * 3.0f;
 	const float Offset = ImGui::GetContentRegionAvail().x - ButtonsWidth;
 	if (Offset > 0.0f)
 	{
@@ -676,6 +700,16 @@ void FSkeletalMeshEditorPanel::DrawGizmoToolbar()
 	}
 	ImGui::SameLine();
 	ImGui::Checkbox("Bones", &bRenderBones);
+	ImGui::SameLine();
+	const bool bCanShowBoneWeight = USkeletalMeshComponent::IsGPUSkinningEnabled() &&
+		PreviewMeshComponent && PreviewMeshComponent->GetSkeletalMesh();
+	ImGui::BeginDisabled(!bCanShowBoneWeight);
+	ImGui::Checkbox("Bone Weight", &bShowBoneWeight);
+	ImGui::EndDisabled();
+	if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+		ImGui::SetTooltip(bCanShowBoneWeight
+			? "Show the selected bone's influence (0 to 1)."
+			: "Requires GPU skinning and a skeletal mesh.");
 }
 
 void FSkeletalMeshEditorPanel::CommitUndo()
