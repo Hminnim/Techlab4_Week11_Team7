@@ -13,7 +13,6 @@
 
 #include "Engine/World.h"
 #include "Engine/Classes/Animation/AnimStateMachine.h"
-#include "Engine/Classes/Animation/Test/AnimStateMachineTest.h"
 #include "Engine/Classes/Animation/BlendSpace.h"
 #include "Engine/Classes/Animation/BlendSpaceAnimInstance.h"
 #include "Engine/Level.h"
@@ -1599,7 +1598,7 @@ void UEditorEngine::PresentFrame()
 				ImGui::SetNextWindowSize(ImVec2(520, 310), ImGuiCond_FirstUseEver);
 				if (ImGui::Begin("BlendSpace 1D Editor", &bBlendSpaceWindowOpen))
 				{
-					UBlendSpace* BS = BSInst->BlendSpacePlayer.BlendSpace;
+					UBlendSpace* BS = BSInst->BlendSpacePlayer.BlendSpace.get();
 					const float MinX = (BS && BS->SampleData.Num() > 0) ? BS->SampleData[0].SamepleVector.X : 0.0f;
 					const float MaxX = (BS && BS->SampleData.Num() > 0) ? BS->SampleData[BS->SampleData.Num() - 1].SamepleVector.X : 600.0f;
 					const float RangeX = std::max(MaxX - MinX, 1.0f);

@@ -7,7 +7,7 @@
 
 struct FAnimNode_Base;
 struct FAnimInstanceProxy;
-struct UAnimInstance;
+class UAnimInstance;
 
 struct FAnimationUpdateSharedContext
 {
@@ -27,9 +27,11 @@ struct FAnimationBaseContext
 
 	FAnimationUpdateSharedContext* SharedContext = nullptr;
 
+	UAnimInstance* AnimInstance = nullptr;
+
 	FAnimationBaseContext();
 
-protected:
+protected:	
 
 	FAnimationBaseContext(UAnimInstance* InAnimInstance);
 	FAnimationBaseContext(FAnimInstanceProxy* InAnimInstanceProxy, FAnimationUpdateSharedContext* InSharedContext = nullptr);
@@ -42,6 +44,7 @@ public:
 
 public:
 	UObject* GetAnimInstanceObject() const;                
+	UAnimInstance* GetAnimInstance() const { return AnimInstance; }
 
 	void SetNodeId(int32 InNodeId)
 	{
@@ -78,6 +81,12 @@ public:
 	{
 
 	}
+
+	FAnimationInitializeContext(UAnimInstance* InAnimInstance)
+		: FAnimationBaseContext(InAnimInstance)
+	{
+
+	}
 };
 
 struct FAnimationUpdateContext : public FAnimationBaseContext
@@ -107,13 +116,30 @@ public:
 
 
 	FAnimationUpdateContext(const FAnimationUpdateContext& Copy, FAnimInstanceProxy* InAnimInstanceProxy)
-		: FAnimationBaseContext(InAnimInstanceProxy, Copy.SharedContext)
+		: FAnimationBaseContext(InAnimInstanceProxy, Copy.SharedContext)		
 		, CurrentWeight(Copy.CurrentWeight)
 		, RootMotionWeightModifier(Copy.RootMotionWeightModifier)
 		, DeltaTime(Copy.DeltaTime)
 	{
 		CurrentNodeId = Copy.CurrentNodeId;
 		PreviousNodeId = Copy.PreviousNodeId;
+		AnimInstance = Copy.AnimInstance;
+	}
+
+	FAnimationUpdateContext(UAnimInstance* InAnimInstance)
+	{
+		CurrentWeight = 1.0f;
+		RootMotionWeightModifier = 1.0f;
+		DeltaTime = 0.0f;
+		AnimInstance = InAnimInstance;
+	}
+
+	FAnimationUpdateContext(UAnimInstance* InAnimInstance, float InDeltaTime)
+	{
+		CurrentWeight = 1.0f;
+		RootMotionWeightModifier = 1.0f;
+		DeltaTime = InDeltaTime;
+		AnimInstance = InAnimInstance;
 	}
 
 public:

@@ -71,6 +71,8 @@ public:
 	void GetAnimNotifies(const float& StartTime, const float& DeltaTime, FAnimNotifyContext& NotifyContext) const;
 	virtual void GetAnimNotifiesFromDeltaPosition(const float& PreviousPosition, const float& CurrentPosition, FAnimNotifyContext& NotifyContext) const;
 
+	void TickAssetPlayer(float& InOutTime, float DeltaMove, bool bLooping, FAnimNotifyQueue* OutNotifyQueue) const;
+
 public:
 	TArray<FAnimNotifyEvent> Notifies;
 	float RateScale = 1.0f;

@@ -38,7 +38,7 @@ public:
 
 	void TriggerAnimNotifies(float DeltaSeconds);
 
-	TMap<FName, TUniquePtr<FAnimNotifyDelegate>> ExternalNotifyHandlers;
+	TMap<FName, TUniquePtr<FAnimNotifyDelegate>, FNameHash> ExternalNotifyHandlers;
 
 	FDelegateHandle AddExternalNotifyHandler(const FName& NotifyName, std::function<void()> Handler);
 

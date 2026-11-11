@@ -196,6 +196,21 @@ void UAnimSequenceBase::GetAnimNotifiesFromDeltaPosition(const float& PreviousPo
 	}
 }
 
+void UAnimSequenceBase::TickAssetPlayer(float& InOutTime, float DeltaMove, bool bLooping, FAnimNotifyQueue* OutNotifyQueue) const
+{
+	const float PreviousTime = InOutTime;
+	
+	FAnimationRuntime::AdvanceTime(bLooping, DeltaMove, InOutTime, GetPlayLength());
+	
+	if(OutNotifyQueue)
+	{
+		FAnimNotifyContext NotifyContext;
+		NotifyContext.bLooping = bLooping;
+		GetAnimNotifies(PreviousTime, DeltaMove, NotifyContext);
+		OutNotifyQueue->AddAnimNotifies(NotifyContext.ActiveNotifies, OutNotifyQueue->AnimNotifies);
+	}
+}
+
 void UAnimSequence::GetAnimationPose(FCompactPose& OutPose, const FAnimExtractContext& ExtractionContext) const
 {
 	GetBonePose(OutPose, ExtractionContext);

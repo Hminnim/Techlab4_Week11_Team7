@@ -12,7 +12,7 @@ public:
 
 	void SetBlendSpace(UBlendSpace* InBlendSpace)
 	{
-		BlendSpacePlayer.BlendSpace = InBlendSpace;
+		BlendSpacePlayer.BlendSpace.reset(InBlendSpace);
 		RootNode = &BlendSpacePlayer;
 	}
 

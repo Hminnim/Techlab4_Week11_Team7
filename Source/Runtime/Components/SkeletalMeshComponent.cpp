@@ -45,7 +45,7 @@ void USkeletalMeshComponent::InitializeAnimation()
 	AnimInstance->NativeInitializeAnimation();
 	if (FAnimNode_Base* Root = AnimInstance->GetRootNode())
 	{
-		Root->Initialize(FAnimationInitializeContext(nullptr));
+		Root->Initialize(FAnimationInitializeContext(AnimInstance.get()));
 		bAnimationInitialized = true;
 	}
 }
@@ -59,7 +59,8 @@ void USkeletalMeshComponent::TickComponent(float DeltaTime)
 
 	AnimInstance->NativeUpdateAnimation(DeltaTime);
 	FAnimNode_Base* Root = AnimInstance->GetRootNode();
-	Root->Update(FAnimationUpdateContext(nullptr, DeltaTime));
+	Root->Update(FAnimationUpdateContext(AnimInstance.get(), DeltaTime));
+	AnimInstance->TriggerAnimNotifies(DeltaTime);
 
 	FPoseContext Output;
 	Output.Pose.SetRefSkeleton(&SkeletalMesh->GetRefSkeleton());

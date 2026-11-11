@@ -38,6 +38,42 @@ bool UCharacterAnimInstance::ConfigureAnimations(UAnimSequence* Idle, UAnimSeque
 		return false;
 	}
 
+	// AnimNotify 테스트: 클립에 테스트 이벤트 등록 (공유 에셋 중복 방지)
+	if (Attack->Notifies.IsEmpty())
+	{
+		FAnimNotifyEvent AttackEvent;
+		AttackEvent.TriggerTime = Attack->GetPlayLength() * 0.4f;
+		AttackEvent.NotifyName = FName("Attack_Slash");
+		Attack->Notifies.Add(AttackEvent);
+	}
+	if (Hit->Notifies.IsEmpty())
+	{
+		FAnimNotifyEvent HitEvent;
+		HitEvent.TriggerTime = Hit->GetPlayLength() * 0.2f;
+		HitEvent.NotifyName = FName("Hit_Impact");
+		Hit->Notifies.Add(HitEvent);
+	}
+	if (Jump.Land && Jump.Land->Notifies.IsEmpty())
+	{
+		FAnimNotifyEvent LandEvent;
+		LandEvent.TriggerTime = 0.05f;
+		LandEvent.NotifyName = FName("Jump_Landing");
+		Jump.Land->Notifies.Add(LandEvent);
+	}
+
+	AddExternalNotifyHandler(FName("Attack_Slash"), []()
+	{
+		HTR_LOG(Info, "[AnimNotify] Attack_Slash triggered!");
+	});
+	AddExternalNotifyHandler(FName("Hit_Impact"), []()
+	{
+		HTR_LOG(Info, "[AnimNotify] Hit_Impact triggered!");
+	});
+	AddExternalNotifyHandler(FName("Jump_Landing"), []()
+	{
+		HTR_LOG(Info, "[AnimNotify] Jump_Landing triggered!");
+	});
+
 	auto AttackPlayer = MakeSequencePlayer(Attack, false);
 	auto HitPlayer = MakeSequencePlayer(Hit, false);
 	const auto IsAttackFinished = MakeClipFinishedRule(AttackPlayer.get());

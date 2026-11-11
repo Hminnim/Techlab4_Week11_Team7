@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>Unreal Engine Architecture: Animation Blending & BlendSpace Deep Dive</title>
+  <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
+  <style>
+    pre code { font-family: 'Consolas', 'Courier New', monospace; }
+    .tab-btn.active { border-color: #3b82f6; color: #60a5fa; background-color: rgba(59, 130, 246, 0.1); }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 antialiased p-6 min-h-screen">
+  <div class="max-w-5xl mx-auto space-y-6">
+
+    <!-- Header -->
+    <header class="border-b border-slate-800 pb-5">
+      <div class="flex items-center justify-between">
+        <div>
+          <span class="text-xs font-bold uppercase tracking-wider text-blue-400 bg-blue-950/60 border border-blue-800/60 px-2.5 py-1 rounded">Krafton Jungle 11주차 과제 · Part B</span>
+          <h1 class="text-2xl font-bold mt-2 text-white">애니메이션 블렌딩 & 블렌드스페이스(BlendSpace) 시스템 아키텍처</h1>
+          <p class="text-slate-400 text-sm mt-1">언리얼 엔진 5 기반 다중 포즈 가중치 합성, 조화 평균 시간 동기화 및 런타임 파이프라인 총정리 가이드</p>
+        </div>
+      </div>
+
+      <!-- Navigation Tabs -->
+      <nav class="flex space-x-2 mt-6">
+        <button onclick="switchTab('overview')" id="tab-overview" class="tab-btn active px-4 py-2 text-sm font-medium rounded-lg border border-transparent transition">1. 구현 목록 & 아키텍처</button>
+        <button onclick="switchTab('math')" id="tab-math" class="tab-btn px-4 py-2 text-sm font-medium rounded-lg border border-transparent text-slate-400 hover:text-slate-200 transition">2. 쿼터니언 & 포즈 누적 수학</button>
+        <button onclick="switchTab('sync')" id="tab-sync" class="tab-btn px-4 py-2 text-sm font-medium rounded-lg border border-transparent text-slate-400 hover:text-slate-200 transition">3. 조화 평균 & 시간 동기화</button>
+        <button onclick="switchTab('interactive')" id="tab-interactive" class="tab-btn px-4 py-2 text-sm font-medium rounded-lg border border-transparent text-slate-400 hover:text-slate-200 transition">4. 인터랙티브 BlendSpace 시뮬레이터</button>
+      </nav>
+    </header>
+
+    <!-- TAB 1: OVERVIEW & ARCHITECTURE -->
+    <section id="content-overview" class="space-y-6">
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div class="bg-slate-900/80 border border-slate-800 rounded-xl p-4">
+          <div class="text-blue-400 text-xs font-semibold uppercase">Step 1. 수학 & 런타임 기초</div>
+          <h3 class="text-base font-bold text-white mt-1">포즈 보간 파이프라인</h3>
+          <p class="text-slate-400 text-xs mt-2 leading-relaxed">
+            <code>FBoneTransform</code> 정의 및 <code>BlendTransform</code>(Overwrite / Accumulate)을 활용하여 다중 포즈를 왜곡 없이 선형/구면 누적하는 <code>FAnimationRuntime</code> 구축.
+          </p>
+        </div>
+        <div class="bg-slate-900/80 border border-slate-800 rounded-xl p-4">
+          <div class="text-emerald-400 text-xs font-semibold uppercase">Step 2. 노드 그래프 계층</div>
+          <h3 class="text-base font-bold text-white mt-1">AnimNode & PoseLink</h3>
+          <p class="text-slate-400 text-xs mt-2 leading-relaxed">
+            언리얼 구조의 <code>FPoseLink</code> 인터페이스를 통해 <code>FAnimNode_TwoWayBlend</code>, <code>FAnimNode_SequencePlayer</code>, <code>FAnimNode_BlendSpacePlayer</code> 트리 전파 구현.
+          </p>
+        </div>
+        <div class="bg-slate-900/80 border border-slate-800 rounded-xl p-4">
+          <div class="text-amber-400 text-xs font-semibold uppercase">Step 3. 로코모션 에셋 & 뷰포트</div>
+          <h3 class="text-base font-bold text-white mt-1">UBlendSpace & Ed Canvas</h3>
+          <p class="text-slate-400 text-xs mt-2 leading-relaxed">
+            속도 구간 탐색, 조화 평균 길이 계산, 정규화 시간 루프를 탑재한 1D BlendSpace와 ImDrawList 기반 언리얼 스타일 에디터 드래그 캔버스 완성.
+          </p>
+        </div>
+      </div>
+
+      <!-- Implementation File Map -->
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-5">
+        <h3 class="text-base font-bold text-white mb-3 flex items-center gap-2">
+          <span class="w-2 h-2 rounded-full bg-blue-500"></span> 구현된 파일 및 핵심 역할 매핑
+        </h3>
+        <div class="overflow-x-auto text-xs">
+          <table class="w-full text-left border-collapse">
+            <thead>
+              <tr class="border-b border-slate-800 text-slate-400 font-semibold">
+                <th class="py-2 px-3">파일 경로</th>
+                <th class="py-2 px-3">핵심 클래스 / 구조체</th>
+                <th class="py-2 px-3">역할 및 알고리즘</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-800/60 text-slate-300">
+              <tr>
+                <td class="py-2 px-3 font-mono text-blue-300">AnimationRuntime.h / .cpp</td>
+                <td class="py-2 px-3 font-semibold text-white">FAnimationRuntime</td>
+                <td class="py-2 px-3"><code>BlendTwoPosesTogether</code>, <code>BlendPosesTogether</code> (N개 포즈 가중치 합성 파이프라인)</td>
+              </tr>
+              <tr>
+                <td class="py-2 px-3 font-mono text-blue-300">BonePose.h</td>
+                <td class="py-2 px-3 font-semibold text-white">FBoneTransform, FCompactPose</td>
+                <td class="py-2 px-3">FRotator 변환 왜곡 방지를 위한 순수 FQuat 기반 포즈 누적 중간 구조체</td>
+              </tr>
+              <tr>
+                <td class="py-2 px-3 font-mono text-blue-300">AnimNode_TwoWayBlend.h / .cpp</td>
+                <td class="py-2 px-3 font-semibold text-white">FAnimNode_TwoWayBlend</td>
+                <td class="py-2 px-3">자식 포즈 A, B를 가중치(Alpha)에 따라 2-Way 합성하는 이진 트리 노드</td>
+              </tr>
+              <tr>
+                <td class="py-2 px-3 font-mono text-blue-300">AnimNode_SequencePlayer.h / .cpp</td>
+                <td class="py-2 px-3 font-semibold text-white">FAnimNode_SequencePlayer</td>
+                <td class="py-2 px-3">단일 시퀀스 재생, 재생 속도(PlayRate), 잉여 시간 보존 루핑 누적기</td>
+              </tr>
+              <tr>
+                <td class="py-2 px-3 font-mono text-blue-300">BlendSpace.h / .cpp</td>
+                <td class="py-2 px-3 font-semibold text-white">UBlendSpace, FBlendSample</td>
+                <td class="py-2 px-3">속도 샘플 추가(자동 정렬), 1D 인접 구간 가중치 계산, 조화 평균 길이 계산</td>
+              </tr>
+              <tr>
+                <td class="py-2 px-3 font-mono text-blue-300">AnimNode_BlendSpacePlayer.h / .cpp</td>
+                <td class="py-2 px-3 font-semibold text-white">FAnimNode_BlendSpacePlayer</td>
+                <td class="py-2 px-3">정규화 시간(0.0~1.0) 동기화 누적기, 가중치 샘플 캐시 및 포즈 평가 위임</td>
+              </tr>
+              <tr>
+                <td class="py-2 px-3 font-mono text-blue-300">BlendSpaceAnimInstance.h</td>
+                <td class="py-2 px-3 font-semibold text-white">UBlendSpaceAnimInstance</td>
+                <td class="py-2 px-3">루트 노드로 BlendSpacePlayer를 소유하고 Speed를 동기화하는 런타임 인스턴스</td>
+              </tr>
+              <tr>
+                <td class="py-2 px-3 font-mono text-blue-300">EditorEngine.cpp</td>
+                <td class="py-2 px-3 font-semibold text-white">UEditorEngine (F8 단축키 & UI)</td>
+                <td class="py-2 px-3">에디터 월드 컴포넌트 틱 격리 우회, UAL1 스폰 및 언리얼 스타일 드래그 캔버스 렌더링</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Execution Flowchart -->
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-5">
+        <h3 class="text-base font-bold text-white mb-2">런타임 애니메이션 평가 파이프라인 (Data Flow)</h3>
+        <p class="text-xs text-slate-400 mb-4">매 프레임 <code>TickComponent</code>에서 GPU 스키닝 버퍼로 변환되기까지의 호출 계층 구조입니다.</p>
+        <div class="bg-slate-950 p-4 rounded-lg font-mono text-xs text-slate-300 space-y-2 border border-slate-800/80">
+          <div class="text-yellow-400 font-semibold">[1] SkeletalMeshComponent::TickComponent(DeltaTime)</div>
+          <div class="pl-4 text-slate-400">└─ AnimInstance->NativeUpdateAnimation(DeltaTime) <span class="text-blue-400">// Speed 등 입력 변수 갱신</span></div>
+          <div class="pl-4 text-slate-400">└─ RootNode->Update(Context) <span class="text-blue-400">// FAnimNode_BlendSpacePlayer::Update</span></div>
+          <div class="pl-8 text-slate-500">├─ UBlendSpace::GetSamplesFromBlendInput(BlendInput, Cache) <span class="text-emerald-400">// [X0, X1] 구간 가중치 계산</span></div>
+          <div class="pl-8 text-slate-500">├─ UBlendSpace::GetAnimationLengthFromSampleData(Cache) <span class="text-emerald-400">// 조화 평균 길이 역산</span></div>
+          <div class="pl-8 text-slate-500">└─ InternalTimeAccumulator += (DeltaTime * PlayRate) / BlendedLength <span class="text-emerald-400">// 0~1 루핑 누적</span></div>
+          <div class="pl-4 text-slate-400">└─ RootNode->Evaluate(Output) <span class="text-blue-400">// FAnimNode_BlendSpacePlayer::Evaluate</span></div>
+          <div class="pl-8 text-slate-500">└─ UBlendSpace::GetAnimationPose(Cache, OutPose)</div>
+          <div class="pl-12 text-slate-600">├─ 각 활성 AnimSequence->GetAnimationPose(ChildPose, Time) <span class="text-amber-400">// 키프레임 보간</span></div>
+          <div class="pl-12 text-slate-600">└─ FAnimationRuntime::BlendPosesTogether(...) <span class="text-amber-400">// Overwrite + Accumulate</span></div>
+          <div class="pl-4 text-slate-400">└─ SkeletalMeshComponent::SetBoneLocalTransform(BoneIndex, OutPose[BoneIndex])</div>
+          <div class="text-yellow-400 font-semibold mt-2">[2] Render Pass -> SkeletalMeshSceneProxy::GetDynamicMeshElements</div>
+          <div class="pl-4 text-slate-400">└─ UpdateSkinnedMesh() -> CPU 스키닝 행렬 계산 -> UploadSkinnedVertices() -> GPU Draw</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 2: MATH & ROTATION ACCUMULATION -->
+    <section id="content-math" class="hidden space-y-6">
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
+        <h3 class="text-lg font-bold text-white flex items-center gap-2">
+          <span class="text-blue-400">#1.</span> 왜 <code>FRotator</code> 대신 <code>FBoneTransform(FQuat)</code>을 써야 하는가?
+        </h3>
+        <p class="text-sm text-slate-300 leading-relaxed">
+          언리얼 엔진의 <code>FTransform</code>은 내부적으로 회전을 오일러 각(Euler Angle)인 <code>FRotator(Pitch, Yaw, Roll)</code>로 표현합니다. 
+          여러 포즈를 합성할 때 매 합성마다 <code>FQuat $\leftrightarrow$ FRotator</code> 변환을 거치면 두 가지 치명적인 문제가 발생합니다:
+        </p>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+          <div class="bg-red-950/30 border border-red-900/40 p-3.5 rounded-lg">
+            <div class="font-bold text-red-300 mb-1">❌ 1. 짐벌 락(Gimbal Lock) 및 각도 왜곡</div>
+            <p class="text-slate-400">
+              오일러 각은 특정 축이 90도에 도달하면 자유도를 잃습니다. 또한 359도와 1도가 만날 때 358도를 회전하는 플립 현상이 발생합니다.
+            </p>
+          </div>
+          <div class="bg-emerald-950/30 border border-emerald-900/40 p-3.5 rounded-lg">
+            <div class="font-bold text-emerald-300 mb-1">✅ 2. FBoneTransform 도입을 통한 해결</div>
+            <p class="text-slate-400">
+              회전을 순수 4원수 <code>FQuat</code> 상태로 보존하는 <code>FBoneTransform</code>을 생성하여 모든 가중치 누적을 마친 후, 최종 출력 시점에만 <code>NormalizeRotation()</code>을 거쳐 변환합니다.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Quaternion Shortest Path & Sign Flip -->
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
+        <h3 class="text-lg font-bold text-white flex items-center gap-2">
+          <span class="text-blue-400">#2.</span> 쿼터니언 최단 경로(Shortest Path) & 부호 반전(Sign Flip)
+        </h3>
+        <p class="text-sm text-slate-300 leading-relaxed">
+          4원수 $q$와 $-q$는 3차원 공간에서 <strong>완전히 동일한 회전</strong>을 나타내는 이중 덮개(Double Cover) 특성을 갖습니다. 
+          그러나 두 쿼터니언을 단순히 가산($q_1 + q_2$)할 때 부호가 다르면 360도 반대 방향의 먼 경로를 돌거나 포즈가 상쇄되어 버립니다.
+        </p>
+
+        <div class="bg-slate-950 p-4 rounded-lg border border-slate-800 text-xs font-mono space-y-2">
+          <div class="text-slate-400">// Accumulate 모드에서의 부호 정렬(Bias) 연산</div>
+          <div class="text-blue-300">FQuat SourceQuat = GetBoneRotation(Source);</div>
+          <div class="text-emerald-300">const float Bias = (SourceQuat.Dot(Dest.Rotation) >= 0.0f) ? 1.0f : -1.0f;</div>
+          <div class="text-yellow-300">Dest.Rotation += (SourceQuat * (BlendWeight * Bias));</div>
+        </div>
+
+        <p class="text-xs text-slate-400 leading-relaxed">
+          두 쿼터니언의 내적(Dot Product)이 음수이면 180도보다 먼 각도를 돌고 있다는 뜻이므로, <code>Bias = -1.0f</code>를 곱해 부호를 반전시킨 후 가산함으로써 <strong>항상 최단 경로(Shortest Path) 회전</strong>을 보장합니다.
+        </p>
+      </div>
+
+      <!-- Overwrite vs Accumulate Pipeline -->
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
+        <h3 class="text-lg font-bold text-white flex items-center gap-2">
+          <span class="text-blue-400">#3.</span> N개 포즈의 가중합: Overwrite $\rightarrow$ Accumulate 패턴
+        </h3>
+        <p class="text-sm text-slate-300 leading-relaxed">
+          언리얼 엔진은 3개 이상의 포즈를 블렌딩할 때 첫 번째 포즈로 버퍼를 초기화하고(Overwrite), 이후 포즈들을 누적(Accumulate)하는 템플릿 패턴을 사용합니다.
+        </p>
+        <div class="bg-slate-950 p-4 rounded-lg border border-slate-800 text-xs font-mono space-y-1">
+          <div class="text-slate-500">// 1. 첫 번째 포즈의 가중치로 덮어쓰기 (기존 쓰레기값 제거)</div>
+          <div class="text-blue-300">BlendPose&lt;ETransformBlendMode::Overwrite&gt;(SourcePoses[0], TempAtoms, SourceWeights[0]);</div>
+          <div class="text-slate-500 mt-2">// 2. 나머지 포즈들을 순차적으로 누적</div>
+          <div class="text-emerald-300">for(int32 PoseIndex = 1; PoseIndex &lt; NumPoses; ++PoseIndex)</div>
+          <div class="text-emerald-300 pl-4">BlendPose&lt;ETransformBlendMode::Accumulate&gt;(SourcePoses[PoseIndex], TempAtoms, SourceWeights[PoseIndex]);</div>
+          <div class="text-slate-500 mt-2">// 3. 최종 정규화 및 패킹</div>
+          <div class="text-yellow-300">for(int32 BoneIndex = 0; BoneIndex &lt; NumBones; ++BoneIndex) {</div>
+          <div class="text-yellow-300 pl-4">TempAtoms[BoneIndex].NormalizeRotation();</div>
+          <div class="text-yellow-300 pl-4">ResultPose[BoneIndex] = TempAtoms[BoneIndex].ToTransform();</div>
+          <div class="text-yellow-300">}</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 3: HARMONIC MEAN & SYNCHRONIZATION -->
+    <section id="sync-content" class="space-y-6">
+      <!-- Harmonic Mean Card -->
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
+        <div class="flex items-center justify-between">
+          <h3 class="text-lg font-bold text-white flex items-center gap-2">
+            <span class="text-blue-400">#1.</span> 조화 평균(Harmonic Mean)을 사용하는 이유
+          </h3>
+          <span class="text-xs bg-amber-950 text-amber-300 border border-amber-800 px-2 py-0.5 rounded font-mono">Foot Sliding 방지 핵심 공식</span>
+        </div>
+        
+        <p class="text-sm text-slate-300 leading-relaxed">
+          걷기(1.2초)와 달리기(0.6초)를 50:50으로 섞을 때, 단순 산술 평균을 취하면 $\frac{1.2 + 0.6}{2} = 0.9$초가 됩니다. 
+          하지만 애니메이션 길이는 <strong>시간</strong>의 개념이며, 캐릭터의 이동성은 <strong>속도($v = \frac{1}{T}$)</strong>에 비례합니다.
+        </p>
+
+        <div class="bg-slate-950 p-4 rounded-lg border border-slate-800 text-xs space-y-3 font-mono">
+          <div class="text-slate-400">// 1. 각 애니메이션의 초당 루프 속도(속력 역수)를 가중 평균</div>
+          <div class="text-emerald-300">float BlendedNormalizedSpeed = (1.0f / WalkLength) * 0.5f + (1.0f / RunLength) * 0.5f;</div>
+          <div class="text-slate-400">// 2. 합성된 속도의 역수를 취해 최종 블렌딩 길이를 도출</div>
+          <div class="text-yellow-300">float BlendedLength = 1.0f / BlendedNormalizedSpeed;</div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs pt-2">
+          <div class="bg-slate-950 p-3 rounded border border-slate-800">
+            <div class="text-red-400 font-bold mb-1">❌ 산술 평균 (Arithmetic Mean)</div>
+            <p class="text-slate-400">$0.5 \times 1.2 + 0.5 \times 0.6 = 0.90\text{초}$</p>
+            <p class="text-slate-500 mt-1">발걸음 속도가 실제 가중치와 맞지 않아 발이 바닥에서 미끄러지는 현상 발생.</p>
+          </div>
+          <div class="bg-slate-950 p-3 rounded border border-slate-800">
+            <div class="text-emerald-400 font-bold mb-1">✅ 조화 평균 (Harmonic Mean, 언리얼 방식)</div>
+            <p class="text-slate-400">$\frac{1}{0.5/1.2 + 0.5/0.6} = 0.80\text{초}$</p>
+            <p class="text-slate-500 mt-1">이동 주파수(Frequency)가 물리적으로 선형 비례하여 발걸음이 지면에 정확히 고정됨.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Normalized Time Sync Card -->
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
+        <h3 class="text-lg font-bold text-white flex items-center gap-2">
+          <span class="text-blue-400">#2.</span> 정규화 시간(Normalized Time) 위상 동기화
+        </h3>
+        <p class="text-sm text-slate-300 leading-relaxed">
+          <code>SequencePlayer</code>는 초(Seconds) 단위로 시간을 누적하지만, 
+          <code>BlendSpacePlayer</code>는 길이가 다른 애니메이션들의 왼발/오른발 타이밍(위상)을 맞추기 위해 <strong>0.0 ~ 1.0의 정규화 시간(Normalized Time)</strong>을 누적합니다.
+        </p>
+
+        <div class="bg-slate-950 p-4 rounded-lg border border-slate-800 text-xs font-mono space-y-2">
+          <div class="text-slate-400">// 1. 정규화된 시간 누적기 전진 (0.0 ~ 1.0)</div>
+          <div class="text-blue-300">InternalTimeAccumulator += (DeltaTime * PlayRate) / BlendedLength;</div>
+          <div class="text-blue-300">if (bLoop) while(InternalTimeAccumulator >= 1.0f) InternalTimeAccumulator -= 1.0f;</div>
+          <div class="text-slate-400 mt-2">// 2. 각 샘플마다 자신의 실제 초(Seconds) 단위 시간으로 역산하여 전달</div>
+          <div class="text-emerald-300">for(FBlendSampleData& Data : BlendSampleDataCache) {</div>
+          <div class="text-emerald-300 pl-4">const FBlendSample& Sample = BlendSpace->GetBlendSample(Data.SampleDataIndex);</div>
+          <div class="text-emerald-300 pl-4">Data.Time = InternalTimeAccumulator * Sample.GetSamplePlayLength();</div>
+          <div class="text-emerald-300">}</div>
+        </div>
+
+        <p class="text-xs text-slate-400 leading-relaxed">
+          이렇게 하면 <code>InternalTimeAccumulator = 0.5</code>일 때, Walk는 0.6초 위치(오른발 착지), Run은 0.3초 위치(오른발 착지)가 추출되어 <strong>두 동작의 발걸음 위상이 완벽하게 일치</strong>한 상태로 합성됩니다.
+        </p>
+      </div>
+    </section>
+
+    <!-- TAB 4: INTERACTIVE SIMULATOR -->
+    <section id="content-interactive" class="hidden space-y-6">
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
+        <div>
+          <h3 class="text-lg font-bold text-white">웹 인터랙티브 BlendSpace & 조화 평균 시뮬레이터</h3>
+          <p class="text-xs text-slate-400 mt-1">슬라이더를 움직이거나 캔버스를 클릭하여 가중치와 조화 평균 길이가 어떻게 실시간 계산되는지 직접 확인하세요.</p>
+        </div>
+
+        <!-- Canvas -->
+        <div class="relative bg-slate-950 border border-slate-800 rounded-lg p-4 cursor-pointer select-none" id="sim-canvas-box" onclick="handleSimClick(event)">
+          <div class="flex justify-between text-xs text-slate-500 font-mono mb-2">
+            <span>0.0 (Idle: 2.0s)</span>
+            <span>150.0 (Walk: 1.2s)</span>
+            <span>350.0 (Jog: 0.8s)</span>
+            <span>600.0 (Sprint: 0.5s)</span>
+          </div>
+
+          <!-- Rail Line -->
+          <div class="relative w-full h-12 flex items-center">
+            <div class="absolute w-full h-1 bg-slate-800 rounded"></div>
+            <!-- Segment Points -->
+            <div class="absolute left-[0%] -translate-x-1/2 w-3.5 h-3.5 rounded-full bg-blue-500 border-2 border-white"></div>
+            <div class="absolute left-[25%] -translate-x-1/2 w-3.5 h-3.5 rounded-full bg-blue-500 border-2 border-white"></div>
+            <div class="absolute left-[58.3%] -translate-x-1/2 w-3.5 h-3.5 rounded-full bg-blue-500 border-2 border-white"></div>
+            <div class="absolute left-[100%] -translate-x-1/2 w-3.5 h-3.5 rounded-full bg-blue-500 border-2 border-white"></div>
+
+            <!-- Cursor Marker -->
+            <div id="sim-cursor" class="absolute left-[0%] -translate-x-1/2 w-5 h-5 rounded-full bg-emerald-400 border-2 border-white shadow-lg transition-all duration-75 flex items-center justify-center">
+              <div class="w-1.5 h-1.5 bg-black rounded-full"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Slider -->
+        <div class="space-y-1">
+          <div class="flex justify-between text-xs font-semibold">
+            <span class="text-slate-300">Speed (X): <span id="val-speed" class="text-emerald-400 font-mono">0.0</span></span>
+            <span class="text-slate-400">범위: 0.0 ~ 600.0</span>
+          </div>
+          <input type="range" id="sim-slider" min="0" max="600" step="1" value="0" class="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-emerald-500" oninput="updateSim(this.value)">
+        </div>
+
+        <!-- Calculation Dashboard -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs pt-2">
+          <div class="bg-slate-950 p-4 rounded-lg border border-slate-800 space-y-2">
+            <div class="font-bold text-slate-300">활성 가중치 (Sample Weights)</div>
+            <div id="weights-container" class="space-y-1.5 font-mono text-slate-400">
+              <!-- Dynamically Populated -->
+            </div>
+          </div>
+
+          <div class="bg-slate-950 p-4 rounded-lg border border-slate-800 space-y-2">
+            <div class="font-bold text-slate-300">합성된 애니메이션 길이 비교</div>
+            <div class="space-y-1 text-slate-400 font-mono">
+              <div class="flex justify-between">
+                <span>조화 평균 (언리얼 공식):</span>
+                <span id="val-harmonic" class="text-emerald-400 font-bold text-sm">2.00초</span>
+              </div>
+              <div class="flex justify-between text-slate-500">
+                <span>단순 산술 평균:</span>
+                <span id="val-arithmetic">2.00초</span>
+              </div>
+              <div class="flex justify-between text-slate-500 pt-1 border-t border-slate-800">
+                <span>차이 (시간 오차):</span>
+                <span id="val-diff" class="text-amber-400">0.00초</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </div>
+
+  <script>
+    function switchTab(tabId) {
+      document.querySelectorAll('section').forEach(s => s.classList.add('hidden'));
+      document.querySelectorAll('.tab-btn').forEach(b => {
+        b.classList.remove('active', 'text-blue-400');
+        b.classList.add('text-slate-400');
+      });
+
+      if (tabId === 'sync') {
+        document.getElementById('sync-content').classList.remove('hidden');
+      } else {
+        document.getElementById('content-' + tabId).classList.remove('hidden');
+      }
+
+      const activeBtn = document.getElementById('tab-' + tabId);
+      activeBtn.classList.add('active', 'text-blue-400');
+      activeBtn.classList.remove('text-slate-400');
+    }
+
+    const samples = [
+      { name: "Idle_Loop", speed: 0.0, length: 2.0 },
+      { name: "Walk_Loop", speed: 150.0, length: 1.2 },
+      { name: "Jog_Fwd_Loop", speed: 350.0, length: 0.8 },
+      { name: "Sprint_Loop", speed: 600.0, length: 0.5 }
+    ];
+
+    function updateSim(speedVal) {
+      const speed = parseFloat(speedVal);
+      document.getElementById('val-speed').innerText = speed.toFixed(1);
+
+      const percent = (speed / 600.0) * 100.0;
+      document.getElementById('sim-cursor').style.left = percent + '%';
+
+      let activeWeights = [];
+      for (let i = 0; i < samples.length - 1; i++) {
+        const x0 = samples[i].speed;
+        const x1 = samples[i + 1].speed;
+        if (speed >= x0 && speed <= x1) {
+          const dist = x1 - x0;
+          const alpha = (dist > 0) ? (speed - x0) / dist : 0;
+          const w0 = 1.0 - alpha;
+          const w1 = alpha;
+          if (w0 > 0.001) activeWeights.push({ sample: samples[i], weight: w0 });
+          if (w1 > 0.001) activeWeights.push({ sample: samples[i + 1], weight: w1 });
+          break;
+        }
+      }
+      if (activeWeights.length === 0) {
+        activeWeights.push({ sample: samples[0], weight: 1.0 });
+      }
+
+      // Render Weights
+      const wContainer = document.getElementById('weights-container');
+      wContainer.innerHTML = '';
+      activeWeights.forEach(item => {
+        const pct = (item.weight * 100).toFixed(1);
+        wContainer.innerHTML += `
+          <div>
+            <div class="flex justify-between mb-0.5">
+              <span>${item.sample.name}</span>
+              <span class="text-white">${item.weight.toFixed(3)} (${pct}%)</span>
+            </div>
+            <div class="w-full bg-slate-800 h-1.5 rounded overflow-hidden">
+              <div class="bg-blue-500 h-full rounded" style="width: ${pct}%"></div>
+            </div>
+          </div>
+        `;
+      });
+
+      // Calculate Harmonic vs Arithmetic
+      let speedSum = 0.0;
+      let arithSum = 0.0;
+      activeWeights.forEach(item => {
+        speedSum += (1.0 / item.sample.length) * item.weight;
+        arithSum += item.sample.length * item.weight;
+      });
+
+      const harmonic = speedSum > 0 ? (1.0 / speedSum) : 0;
+      const arithmetic = arithSum;
+      const diff = Math.abs(arithmetic - harmonic);
+
+      document.getElementById('val-harmonic').innerText = harmonic.toFixed(3) + '초';
+      document.getElementById('val-arithmetic').innerText = arithmetic.toFixed(3) + '초';
+      document.getElementById('val-diff').innerText = diff.toFixed(3) + '초';
+    }
+
+    function handleSimClick(e) {
+      const box = document.getElementById('sim-canvas-box');
+      const rect = box.getBoundingClientRect();
+      const clickX = e.clientX - rect.left - 16; // padding approx
+      const width = rect.width - 32;
+      const ratio = Math.max(0, Math.min(1, clickX / width));
+      const newSpeed = ratio * 600.0;
+      document.getElementById('sim-slider').value = newSpeed;
+      updateSim(newSpeed);
+    }
+
+    updateSim(0);
+  </script>
+</body>
+</html>
