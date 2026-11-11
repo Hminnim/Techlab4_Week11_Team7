@@ -1,6 +1,6 @@
 #include "EnginePCH.h"
 #include "AnimNode_SequencePlayer.h"
-#include "AnimInstance.h"
+#include "Engine/Classes/Animation/AnimInstance.h"
 
 void FAnimNode_SequencePlayer::Initialize(const FAnimationInitializeContext& Context)
 {

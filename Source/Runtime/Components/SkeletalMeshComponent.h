@@ -6,6 +6,7 @@
 #include "SkeletalMeshComponent.generated.h"
 
 class UAnimInstance;
+struct FRootMotionMovementParams;
 
 UCLASS()
 class USkeletalMeshComponent : public USkinnedMeshComponent
@@ -25,6 +26,9 @@ public:
 	void SetAnimInstance(TUniquePtr<UAnimInstance> InInstance);
 	UAnimInstance* GetAnimInstance() const { return AnimInstance.get(); }
 	void TickComponent(float DeltaTime) override;
+
+	// 컴포넌트 공간 루트 모션 이동량을 월드 공간 이동량으로 변환
+	FVector ConvertLocalRootMotionToWorld(const FVector& LocalDelta) const;
 
 	// 메시 교체 시 기준 포즈로 초기화한다. nullptr이면 리소스와 본 자세를 비운다.
 	void SetSkeletalMesh(USkeletalMesh* InMesh);
@@ -51,6 +55,7 @@ protected:
 
 private:
 	void InitializeAnimation();
+	void ApplyRootMotion(const FRootMotionMovementParams& RootMotion);
 
 	// 리소스 변경은 자세 초기화를 위해 SetSkeletalMesh를 거친다.
 	UPROPERTY(EditAnywhere)

@@ -1458,6 +1458,16 @@ namespace FLuaBindings
 				throw sol::error("Cannot load animation '" + Path + "': " + Error);
 			Clip->RateScale = Scale;
 		});
+
+		// 클립 에셋의 루트 모션 사용 여부를 바꾼다. 켜면 root 본 이동이 포즈 대신 액터 이동으로 나간다.
+		Lua.set_function("SetAnimRootMotion", [](const FString& Path, const FString& Take, bool bEnabled)
+			{
+				FString Error;
+				UAnimSequence* Clip = UAssetManager::Get().LoadFbxAnimSequence(Path, Error, Take);
+				if (!Clip)
+					throw sol::error("Cannot load animation '" + Path + "': " + Error);
+				Clip->bEnableRootMotion = bEnabled;
+			});
 	}
 
 	void ReleaseAnimationStateMachines(sol::state& Lua)

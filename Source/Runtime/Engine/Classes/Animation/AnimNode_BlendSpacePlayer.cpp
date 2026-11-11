@@ -1,7 +1,7 @@
 #include "EnginePCH.h"
 #include "AnimNode_BlendSpacePlayer.h"
 #include "BlendSpace.h"
-#include "AnimInstance.h"
+#include "Engine/Classes/Animation/AnimInstance.h"
 
 void FAnimNode_BlendSpacePlayer::Initialize(const FAnimationInitializeContext& Context)
 {
@@ -66,6 +66,27 @@ void FAnimNode_BlendSpacePlayer::Update(const FAnimationUpdateContext& Context)
             NotifyContext.bLooping = bLoop;
             ActiveLeader->Animation->GetAnimNotifies(LeaderPrevTime, LeaderDeltaMove, NotifyContext);            
             NotifyQueue->AddAnimNotifies(NotifyContext.ActiveNotifies, NotifyQueue->AnimNotifies);
+        }
+
+        UAnimInstance* AnimInstance = Context.GetAnimInstance();
+        if (AnimInstance)
+        {
+            const float NodeWeight = Context.GetFinalBlendWeight() * Context.GetRootMotionWeightModifier();
+
+            for (FBlendSampleData& Data : BlendSampleDataCache)
+            {
+                const FBlendSample& Sample = BlendSpace->GetBlendSample(Data.SampleDataIndex);
+                if (!Sample.Animation || !Sample.Animation->bEnableRootMotion)
+                    continue;
+
+                const float SampleLength = Sample.GetSamplePlayLength();
+                const FTransform RootMotion = Sample.Animation->ExtractRootMotion(
+                    PreviousNormalizedTime * SampleLength,
+                    NormalizedDelta * SampleLength,
+                    bLoop
+                );
+                AnimInstance->AccumulateRootMotion(RootMotion, NodeWeight * Data.GetClampedWeight());
+            }
         }
     }
 }

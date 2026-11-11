@@ -43,7 +43,7 @@ public:
 	FAnimationBaseContext& operator=(const FAnimationBaseContext&) = default;
 
 public:
-	UObject* GetAnimInstanceObject() const;                
+	UObject* GetAnimInstanceObject() const;         
 	UAnimInstance* GetAnimInstance() const { return AnimInstance; }
 
 	void SetNodeId(int32 InNodeId)
@@ -66,6 +66,7 @@ protected:
 	bool bIsActive = true;
 	int32 CurrentNodeId = -1;
 	int32 PreviousNodeId = -1;
+	UAnimInstance* AnimInstance = nullptr;
 };
 
 struct FAnimationInitializeContext : public FAnimationBaseContext
