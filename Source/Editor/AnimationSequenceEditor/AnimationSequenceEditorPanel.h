@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Containers/Array.h"
 #include "Editor/EditorUI/EditorPanel.h"
 #include "Editor/EditorUI/EditorTimeline.h"
 #include "Editor/Viewports/EditorViewportClient.h"
@@ -20,6 +21,9 @@ public:
 	const char* GetPanelName() const override { return "Animation Sequence Editor"; }
 	void SetEditorSettings(const FEditorSettings* InSettings) { Settings = InSettings; }
 	bool IsRenderGrid() const { return bRenderGrid; }
+	// Heatmap 모드와 본 선택을 분리해, 선택 해제 시에도 보라색 표시를 유지한다.
+	bool IsBoneWeightEnabled() const;
+	int32 GetBoneWeightBoneIndex() const;
 
 	// 콘텐츠 브라우저에서 선택한 클립과 같은 FBX의 메시를 연결한다.
 	bool OpenAsset(UAnimSequence* InSequence, USkeletalMesh* InSkeletalMesh);
@@ -34,6 +38,8 @@ public:
 private:
 	void DrawViewport();
 	void TickCameraInput();
+	void DrawBoneHierarchy();
+	void DrawBoneTreeNode(int32 BoneIndex);
 
 	void DrawSequenceInfo();
 	void DrawSelectedNotifyInspector();
@@ -48,6 +54,10 @@ private:
 	void EvaluatePreviewPose();
 
 	bool bRenderGrid = true;
+	bool bShowBoneWeight = false;
+	// 애니메이션의 트랙 순서가 아닌, 프리뷰 메시의 스켈레톤 인덱스를 사용한다.
+	int32 SelectedBoneIndex = -1;
+	TArray<TArray<int32>> BoneChildren;
 	bool bRequestFocus = false;
 	float CameraSpeed = 1.0f;
 
