@@ -13,6 +13,7 @@
 #include <cmath>
 #include "Math/Frustum.h"
 #include "Render/RenderCommand.h"
+#include "UObject/UObjectIterator.h"
 #include "UI/UserWidget.h"
 
 FGameViewportClient::FGameViewportClient()
@@ -126,6 +127,12 @@ bool FGameViewportClient::ScreenToWorldRay(
 UCameraComponent* FGameViewportClient::FindPlayerCamera() const
 {
 	if (!World) return nullptr;
+	for (TObjectIterator<UCameraComponent> It; It; ++It)
+	{
+		UCameraComponent* Camera = *It;
+		if (Camera->ShouldAutoActivateForPlayer() && Camera->GetWorld() == World && Camera->IsActive())
+			return Camera;
+	}
 	if (APawn* Pawn = World->GetPlayerPawn())
 	{
 		if (ADefaultPawn* DefaultPawn = Cast<ADefaultPawn>(Pawn))

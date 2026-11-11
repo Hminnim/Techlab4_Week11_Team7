@@ -48,6 +48,7 @@ public:
 
 	float GetOrthoWidth() const { return OrthoWidth; }
 	void SetOrthoWidth(float InOrthoWidth) { OrthoWidth = InOrthoWidth; }
+	bool ShouldAutoActivateForPlayer() const { return bAutoActivateForPlayer; }
 
 	// 마우스 조작 설정
 	float GetMoveSpeed() const { return MoveSpeed; }
@@ -68,6 +69,9 @@ public:
 	void UpdateZoom(float DeltaTime);     // 마우스 휠 줌
 
 protected:
+	UPROPERTY(EditAnywhere)
+	bool bAutoActivateForPlayer = false;
+
 	float FieldOfView = 60.0f;
 	float AspectRatio = 16.0f / 9.0f;
 	float NearClipPlane = 0.1f;
