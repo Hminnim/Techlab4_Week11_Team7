@@ -5,6 +5,7 @@
 #include "Editor/EditorUI/EditorTimeline.h"
 #include "Editor/Viewports/EditorViewportClient.h"
 #include "Editor/Settings/SettingsPanel.h"
+#include "Editor/SkeletalMeshEditor/SkeletalPose.h"
 
 class USkeletalMeshComponent;
 class UWorld;
@@ -21,6 +22,9 @@ public:
 	const char* GetPanelName() const override { return "Animation Sequence Editor"; }
 	void SetEditorSettings(const FEditorSettings* InSettings) { Settings = InSettings; }
 	bool IsRenderGrid() const { return bRenderGrid; }
+	bool IsRenderBones() const { return SelectedBoneIndex >= 0; }
+	int32 GetSelectedBoneIndex() const { return SelectedBoneIndex; }
+	const FSkeletalPose& GetPreviewPose() const { return PreviewPose; }
 	// Heatmap 모드와 본 선택을 분리해, 선택 해제 시에도 보라색 표시를 유지한다.
 	bool IsBoneWeightEnabled() const;
 	int32 GetBoneWeightBoneIndex() const;
@@ -71,6 +75,7 @@ private:
 
 	UWorld* PreviewWorld = nullptr;
 	USkeletalMeshComponent* PreviewMeshComponent = nullptr;
+	FSkeletalPose PreviewPose;
 	const FEditorSettings* Settings = nullptr;
 
 	// AssetManager가 관리하는 에셋을 참조

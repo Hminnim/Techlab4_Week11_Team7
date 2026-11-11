@@ -1057,6 +1057,17 @@ void UEditorEngine::RenderAnimationSequencePreview()
 					};
 			}
 
+			if (AnimationSequenceEditorPanel->IsRenderBones())
+			{
+				Overlays.EditorBones = [this, &SceneView]
+					{
+						BoneRenderer->OnRender(
+							AnimationSequenceEditorPanel->GetPreviewPose(),
+							AnimationSequenceEditorPanel->GetSelectedBoneIndex(),
+							SceneView.ViewProjectionMatrix,
+							SceneView.ViewLocation);
+					};
+			}
 
 			Overlays.bClearEditorDepth = true;
 		});

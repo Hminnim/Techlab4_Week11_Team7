@@ -189,6 +189,9 @@ bool FAnimationSequenceEditorPanel::OpenAsset(UAnimSequence* InSequence, USkelet
 			BoneChildren[ParentIndex].Add(BoneIndex);
 	}
 	PreviewMeshComponent->ResetToReferencePose();
+	PreviewPose.Skeleton = &InSkeletalMesh->GetRefSkeleton();
+	PreviewPose.Reset();
+	PreviewPose.ComponentSpacePose = PreviewMeshComponent->GetBoneComponentMatrices();
 	EditSequence = InSequence;
 	bPlaying = false;
 	SelectedNotifyIndex = INDEX_NONE;
@@ -687,10 +690,14 @@ void FAnimationSequenceEditorPanel::EvaluatePreviewPose()
 	EditSequence->GetAnimationPose(Pose, Context);
 
 	if (Pose.GetNumBones() != PreviewMeshComponent->GetNumBones()) return;
+	PreviewPose.LocalPose.SetNum(Pose.GetNumBones());
 	for (int32 BoneIndex = 0; BoneIndex < Pose.GetNumBones(); ++BoneIndex)
 	{
 		PreviewMeshComponent->SetBoneLocalTransform(BoneIndex, Pose[BoneIndex]);
+		PreviewPose.LocalPose[BoneIndex] = Pose[BoneIndex];
 	}
+	// 본 오버레이도 스키닝에 사용한 현재 포즈를 따라간다.
+	PreviewPose.ComponentSpacePose = PreviewMeshComponent->GetBoneComponentMatrices();
 }
 
 void FAnimationSequenceEditorPanel::DrawSequenceInfo()
@@ -855,6 +862,7 @@ UWorld* FAnimationSequenceEditorPanel::ReleasePreviewWorld()
 	bFitTimeline = true;
 	SelectedBoneIndex = -1;
 	BoneChildren.Reset();
+	PreviewPose = {};
 	PreviewMeshComponent = nullptr;
 
 	UWorld* ReleasedWorld = PreviewWorld;
@@ -866,17 +874,7 @@ UWorld* FAnimationSequenceEditorPanel::ReleasePreviewWorld()
 // 프리뷰 캐릭터를 보여주는 뷰포트 영역을 그립니다.
 void FAnimationSequenceEditorPanel::DrawViewport()
 {
-	if (IsBoneWeightEnabled())
-	{
-		const int32 BoneIndex = GetBoneWeightBoneIndex();
-		if (BoneIndex >= 0)
-			ImGui::TextWrapped("Bone Weight: %s",
-				PreviewMeshComponent->GetSkeletalMesh()->GetRefSkeleton().RawRefBoneInfo[BoneIndex].Name.ToString().c_str());
-		else
-			ImGui::TextDisabled("No bone selected: Weight 0 (Purple).");
-		ImGui::TextDisabled("0 Purple > Blue > Green > Yellow > Red 1");
-	}
-
+	// 선택 상태와 관계없이 같은 영역을 사용해 프리뷰 크기가 바뀌지 않도록 한다.
 	const ImVec2 ViewportSize = ImGui::GetContentRegionAvail();
 	const uint32 Width = static_cast<uint32>(std::max(1.0f, ViewportSize.x));
 	const uint32 Height = static_cast<uint32>(std::max(1.0f, ViewportSize.y));
