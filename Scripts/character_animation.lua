@@ -106,3 +106,7 @@ end
 function EndPlay()
     ResetJump()
 end
+
+function OnAnimNotify(notifyName, clipName)
+    print("[Lua AnimNotify] '" .. tostring(notifyName) .. "' from clip '" .. tostring(clipName) .. "'")
+end

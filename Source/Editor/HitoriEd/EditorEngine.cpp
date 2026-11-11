@@ -15,6 +15,7 @@
 #include "Engine/Classes/Animation/AnimStateMachine.h"
 #include "Engine/Classes/Animation/BlendSpace.h"
 #include "Engine/Classes/Animation/BlendSpaceAnimInstance.h"
+#include "Engine/Classes/Animation/CharacterAnimInstance.h"
 #include "Engine/Level.h"
 #include "Engine/GameInstance.h"
 #include "Engine/GameViewportClient.h"
@@ -66,6 +67,7 @@ namespace
 {
 	bool bBlendSpaceWindowOpen = false;
 	UBlendSpaceAnimInstance* GPreviewBlendSpaceAnimInst = nullptr;
+	UBlendSpaceAnimInstance* GPIEBlendSpaceAnimInst = nullptr;
 	USkeletalMeshComponent* GPreviewBlendSpaceSkelComp = nullptr;
 
 	DECLARE_CYCLE_STAT("Viewport Update", STAT_ViewportUpdate);
@@ -442,8 +444,8 @@ void UEditorEngine::BeginFrame(const float DeltaTime)
 	HandleSkeletalMeshPreviewInput();
 
 	// 에디터 월드에서는 World::Tick이 컴포넌트 틱을 실행하지 않으므로,
-	// BlendSpace 미리보기 액터의 SkeletalMeshComponent를 명시적으로 틱한다.
-	if (bBlendSpaceWindowOpen && GPreviewBlendSpaceSkelComp)
+	// PIE가 아닐 때만 BlendSpace 미리보기 액터의 SkeletalMeshComponent를 명시적으로 틱한다.
+	if (!PlayWorld && bBlendSpaceWindowOpen && GPreviewBlendSpaceSkelComp)
 	{
 		if (GPreviewBlendSpaceSkelComp->GetWorld() == EditorWorld)
 		{
@@ -1591,14 +1593,37 @@ void UEditorEngine::PresentFrame()
 					if ((SkelComp = Cast<USkeletalMeshComponent>(Candidate))) break;
 				}
 			}
-			UBlendSpaceAnimInstance* BSInst = SkelComp ? dynamic_cast<UBlendSpaceAnimInstance*>(SkelComp->GetAnimInstance()) : GPreviewBlendSpaceAnimInst;
+			UBlendSpaceAnimInstance* FallbackInst = (PlayWorld && GPIEBlendSpaceAnimInst) ? GPIEBlendSpaceAnimInst : GPreviewBlendSpaceAnimInst;
+			FAnimNode_BlendSpacePlayer* BSPlayer = nullptr;
+			float* SpeedPtr = nullptr;
+			if (SkelComp && SkelComp->GetAnimInstance())
+			{
+				if (auto* BSInst = dynamic_cast<UBlendSpaceAnimInstance*>(SkelComp->GetAnimInstance()))
+				{
+					BSPlayer = &BSInst->BlendSpacePlayer;
+					SpeedPtr = &BSInst->Speed;
+				}
+				else if (auto* CharInst = Cast<UCharacterAnimInstance>(SkelComp->GetAnimInstance()))
+				{
+					if (FAnimNode_BlendSpacePlayer* LocBS = CharInst->GetLocomotionBlendSpace())
+					{
+						BSPlayer = LocBS;
+						SpeedPtr = &LocBS->X;
+					}
+				}
+			}
+			if (!BSPlayer && FallbackInst)
+			{
+				BSPlayer = &FallbackInst->BlendSpacePlayer;
+				SpeedPtr = &FallbackInst->Speed;
+			}
 
-			if (BSInst)
+			if (BSPlayer && SpeedPtr)
 			{
 				ImGui::SetNextWindowSize(ImVec2(520, 310), ImGuiCond_FirstUseEver);
 				if (ImGui::Begin("BlendSpace 1D Editor", &bBlendSpaceWindowOpen))
 				{
-					UBlendSpace* BS = BSInst->BlendSpacePlayer.BlendSpace.get();
+					UBlendSpace* BS = BSPlayer->BlendSpace.get();
 					const float MinX = (BS && BS->SampleData.Num() > 0) ? BS->SampleData[0].SamepleVector.X : 0.0f;
 					const float MaxX = (BS && BS->SampleData.Num() > 0) ? BS->SampleData[BS->SampleData.Num() - 1].SamepleVector.X : 600.0f;
 					const float RangeX = std::max(MaxX - MinX, 1.0f);
@@ -1628,7 +1653,7 @@ void UEditorEngine::PresentFrame()
 						const float MouseX = ImGui::GetIO().MousePos.x;
 						const float ClampedMouseX = std::clamp(MouseX, CanvasP0.x + PaddingX, CanvasP0.x + PaddingX + UsableWidth);
 						const float NormalizedRatio = (ClampedMouseX - (CanvasP0.x + PaddingX)) / UsableWidth;
-						BSInst->Speed = MinX + NormalizedRatio * RangeX;
+						*SpeedPtr = MinX + NormalizedRatio * RangeX;
 					}
 
 					// 1. 배경 및 테두리
@@ -1646,7 +1671,7 @@ void UEditorEngine::PresentFrame()
 						DrawList->AddLine(ImVec2(LineX, CanvasP0.y + 4.0f), ImVec2(LineX, CanvasP1.y - 4.0f), IM_COL32(45, 45, 52, 255), 1.0f);
 
 						char LabelBuf[32];
-						snprintf(LabelBuf, sizeof(LabelBuf), "%.0f", LineVal);
+						snprintf(LabelBuf, sizeof(LabelBuf), "%.1f", LineVal);
 						DrawList->AddText(ImVec2(LineX - 8.0f, CanvasP1.y - 18.0f), IM_COL32(130, 130, 140, 255), LabelBuf);
 					}
 
@@ -1654,7 +1679,7 @@ void UEditorEngine::PresentFrame()
 					DrawList->AddLine(ImVec2(CanvasP0.x + PaddingX, RailY), ImVec2(CanvasP0.x + PaddingX + UsableWidth, RailY), IM_COL32(80, 80, 95, 255), 2.0f);
 
 					// 4. 등록된 샘플 포인트 및 가중치 링
-					const auto& Cache = BSInst->BlendSpacePlayer.BlendSampleDataCache;
+					const auto& Cache = BSPlayer->BlendSampleDataCache;
 					if (BS)
 					{
 						for (int32 i = 0; i < BS->SampleData.Num(); ++i)
@@ -1709,7 +1734,7 @@ void UEditorEngine::PresentFrame()
 					}
 
 					// 5. 현재 미리보기 커서 (녹색 수직선 & 십자선 포인트)
-					const float ClampedSpeed = std::clamp(BSInst->Speed, MinX, MaxX);
+					const float ClampedSpeed = std::clamp(*SpeedPtr, MinX, MaxX);
 					const float CursorRatio = (ClampedSpeed - MinX) / RangeX;
 					const float CursorX = CanvasP0.x + PaddingX + CursorRatio * UsableWidth;
 
@@ -1731,9 +1756,13 @@ void UEditorEngine::PresentFrame()
 
 					// 6. 하단 미세 조정 슬라이더 및 재생 시간 바
 					ImGui::Spacing();
-					ImGui::SliderFloat("Speed", &BSInst->Speed, MinX, MaxX, "%.1f");
+					ImGui::SliderFloat("Speed", SpeedPtr, MinX, MaxX, "%.2f");
+					if (GPreviewBlendSpaceAnimInst && FallbackInst && BSPlayer == &FallbackInst->BlendSpacePlayer)
+					{
+						GPreviewBlendSpaceAnimInst->Speed = *SpeedPtr;
+					}
 
-					const float NormTime = BSInst->BlendSpacePlayer.InternalTimeAccumulator;
+					const float NormTime = BSPlayer->InternalTimeAccumulator;
 					char TimeBuf[64];
 					snprintf(TimeBuf, sizeof(TimeBuf), "Time Loop: %.2f", NormTime);
 					ImGui::ProgressBar(NormTime, ImVec2(-1, 8), TimeBuf);
@@ -1824,6 +1853,38 @@ void UEditorEngine::StartPlayInEditorSession()
 		return;
 	}
 	PlayWorld = GameInstance->GetWorld();
+	GPIEBlendSpaceAnimInst = nullptr;
+	if (PlayWorld && GPreviewBlendSpaceSkelComp && GPreviewBlendSpaceAnimInst && GPreviewBlendSpaceSkelComp->GetOwner())
+	{
+		const FName PreviewActorName = GPreviewBlendSpaceSkelComp->GetOwner()->GetFName();
+		for (AActor* PIEActor : PlayWorld->GetPersistentLevel()->GetActors())
+		{
+			if (PIEActor && PIEActor->GetFName() == PreviewActorName)
+			{
+				for (UActorComponent* Comp : PIEActor->GetComponents())
+				{
+					if (USkeletalMeshComponent* PIESkelComp = Cast<USkeletalMeshComponent>(Comp))
+					{
+						if (UBlendSpace* SrcBS = GPreviewBlendSpaceAnimInst->BlendSpacePlayer.BlendSpace.get())
+						{
+							UBlendSpace* PIEBS = NewObject<UBlendSpace>();
+							for (const FBlendSample& Sample : SrcBS->SampleData)
+							{
+								PIEBS->AddSample(Sample.Animation, Sample.SamepleVector);
+							}
+							auto PIEAnimInst = MakeUnique<UBlendSpaceAnimInstance>();
+							PIEAnimInst->SetBlendSpace(PIEBS);
+							PIEAnimInst->Speed = GPreviewBlendSpaceAnimInst->Speed;
+							GPIEBlendSpaceAnimInst = PIEAnimInst.get();
+							PIESkelComp->SetAnimInstance(std::move(PIEAnimInst));
+						}
+						break;
+					}
+				}
+				break;
+			}
+		}
+	}
 	if (!bNewWindow && PIEContext.GameViewport && ViewportsPanel)
 	{
 		ViewportsPanel->SetGameViewportClient(PIEStartEditorViewIndex, PIEContext.GameViewport.get());
@@ -1889,6 +1950,7 @@ void UEditorEngine::EndPlayMap()
 		ViewportsPanel->ClearGameViewportClient();
 	DestroyWorldContext(PlayWorld);
 	PlayWorld = nullptr;
+	GPIEBlendSpaceAnimInst = nullptr;
 	PIEViewIndex = InvalidViewIndex;
 	PIEStartEditorViewIndex = InvalidViewIndex;
 	DestroyPIEWindow();

@@ -444,6 +444,12 @@ void AActor::NotifyDeath(AActor* OtherActor)
 		Script->Call("OnDeath", OtherActor);
 }
 
+void AActor::NotifyAnimNotify(const FString& NotifyName, const FString& ClipName)
+{
+	if (Script)
+		Script->Call("OnAnimNotify", NotifyName, ClipName);
+}
+
 bool AActor::IsOverlappingActor(const AActor* Other) const
 {
 	if (!Other)

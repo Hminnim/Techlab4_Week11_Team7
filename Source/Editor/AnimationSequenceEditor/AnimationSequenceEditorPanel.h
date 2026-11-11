@@ -36,9 +36,12 @@ private:
 	void TickCameraInput();
 
 	void DrawSequenceInfo();
+	void DrawSelectedNotifyInspector();
 	void DrawPlaybackControls();
 	void DrawAnimationTimeline();
 	void DrawNotifyTrack(ImDrawList* Draw, const ImVec2& Min, const ImVec2& Max);
+	int32 HitTestNotify(float MouseX, float MouseY, const ImVec2& LaneMin, const ImVec2& LaneMax) const;
+	void SelectNotify(int32 Index);
 	void TogglePlayback();
 	void StepFrame(int32 Direction);
 	void SetPreviewTime(float NewTime);
@@ -60,6 +63,13 @@ private:
 	float PlayRate = 1.0f;
 	EditorTimeline::FView TimelineView;
 	bool bFitTimeline = true;
+
+	// AnimNotify 편집 상태
+	int32 SelectedNotifyIndex = INDEX_NONE;
+	int32 DraggingNotifyIndex = INDEX_NONE;
+	float PendingNotifyTime = 0.0f;
+	char NewNotifyName[128] = "Footstep";
+	char EditNotifyName[128] = "";
 
 	FEditorViewportClient ViewportClient;
 };

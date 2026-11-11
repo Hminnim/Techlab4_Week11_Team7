@@ -146,3 +146,8 @@ void FLuaScriptInstance::Call(const char* Name, AActor* Other)
 {
 	CallLua(Impl->Env, Path, Name, FLuaActorRef::Make(Other));
 }
+
+void FLuaScriptInstance::Call(const char* Name, const FString& Arg1, const FString& Arg2)
+{
+	CallLua(Impl->Env, Path, Name, Arg1, Arg2);
+}

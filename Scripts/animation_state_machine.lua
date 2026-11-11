@@ -94,3 +94,7 @@ end
 function EndPlay()
     sm = nil
 end
+
+function OnAnimNotify(notifyName, clipName)
+    print("[Lua AnimNotify] '" .. tostring(notifyName) .. "' from clip '" .. tostring(clipName) .. "'")
+end

@@ -61,19 +61,6 @@ bool UCharacterAnimInstance::ConfigureAnimations(UAnimSequence* Idle, UAnimSeque
 		Jump.Land->Notifies.Add(LandEvent);
 	}
 
-	AddExternalNotifyHandler(FName("Attack_Slash"), []()
-	{
-		HTR_LOG(Info, "[AnimNotify] Attack_Slash triggered!");
-	});
-	AddExternalNotifyHandler(FName("Hit_Impact"), []()
-	{
-		HTR_LOG(Info, "[AnimNotify] Hit_Impact triggered!");
-	});
-	AddExternalNotifyHandler(FName("Jump_Landing"), []()
-	{
-		HTR_LOG(Info, "[AnimNotify] Jump_Landing triggered!");
-	});
-
 	auto AttackPlayer = MakeSequencePlayer(Attack, false);
 	auto HitPlayer = MakeSequencePlayer(Hit, false);
 	const auto IsAttackFinished = MakeClipFinishedRule(AttackPlayer.get());
@@ -217,4 +204,11 @@ void UCharacterAnimInstance::SetRestartHitOnReentry(bool bEnabled)
 	{
 		StateMachine.SetStateRestartOnReentry(HitState, bEnabled);
 	}
+}
+
+void UCharacterAnimInstance::HandleAnimNotify(const FAnimNotifyEvent& NotifyEvent, const UAnimSequenceBase* NotifySource, const FString& ClipName)
+{
+	(void)NotifySource;
+	HTR_LOG(Info, "[CharacterAnimInstance] Received Notify '{}' from '{}' (State: {})",
+		NotifyEvent.NotifyName.ToString(), ClipName, GetCurrentStateName().ToString());
 }

@@ -128,7 +128,12 @@ namespace
 
 	FString MakeAssetKey(const FString& Path)
 	{
-		return fs::relative(Path, "Assets").generic_string();
+		const fs::path FsPath(Path);
+		if (!FsPath.empty() && *FsPath.begin() == "Assets")
+		{
+			return fs::relative(FsPath, "Assets").generic_string();
+		}
+		return FsPath.generic_string();
 	}
 
 	// 임포터가 만든 데이터를 UAnimSequence로 감싼다.
@@ -721,7 +726,17 @@ UAnimSequence* UAssetManager::LoadFbxAnimSequence(const FString& Path, FString& 
 
 	if (!FirstFbxAnimations.Contains(Key))
 	{
-		LoadFbxAnimations(Key, Path, OutError);
+		FString DiskPath = Path;
+		if (const FString* MappedPath = AssetPathMap.Find(Key))
+		{
+			DiskPath = *MappedPath;
+		}
+		else if (!fs::exists(DiskPath))
+		{
+			const FString Candidate = (fs::path("Assets") / Key).generic_string();
+			if (fs::exists(Candidate)) DiskPath = Candidate;
+		}
+		LoadFbxAnimations(Key, DiskPath, OutError);
 		if (!OutError.empty()) return nullptr;
 	}
 
@@ -897,6 +912,27 @@ void UAssetManager::GetFbxAnimationAssets(const FString& FbxKey, TArray<FFbxAnim
 	{
 		return A.DisplayName == B.DisplayName ? A.AssetKey < B.AssetKey : A.DisplayName < B.DisplayName;
 	});
+}
+
+void UAssetManager::SyncAnimNotifiesByClipName(const UAnimSequence* SourceSequence)
+{
+	if (!SourceSequence) return;
+	const FString& SrcPath = SourceSequence->GetPath();
+	const size_t SlashPos = SrcPath.find_last_of('/');
+	if (SlashPos == FString::npos) return;
+
+	const FString ClipSuffix = SrcPath.substr(SlashPos); // e.g., "/Walk_Loop"
+	for (auto& [Key, Asset] : AssetMap)
+	{
+		if (!Asset || Asset == SourceSequence) continue;
+		if (Key.ends_with(ClipSuffix))
+		{
+			if (UAnimSequence* TargetSeq = Cast<UAnimSequence>(Asset))
+			{
+				TargetSeq->Notifies = SourceSequence->Notifies;
+			}
+		}
+	}
 }
 
 bool UAssetManager::ReorientStaticMesh(UStaticMesh& Mesh, const std::function<FVector(const FVector&)>& Rotate)

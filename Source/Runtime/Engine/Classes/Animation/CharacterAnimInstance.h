@@ -35,9 +35,11 @@ public:
 	// 호출자는 NativeInitialize 후 루트 Initialize, NativeUpdate 후 루트 Update/Evaluate를 실행한다.
 	void NativeInitializeAnimation() override;
 	void NativeUpdateAnimation(float DeltaSeconds) override;
+	void HandleAnimNotify(const FAnimNotifyEvent& NotifyEvent, const UAnimSequenceBase* NotifySource, const FString& ClipName) override;
 
 	void SetSpeed(float InSpeed) { Speed = InSpeed; }
 	float GetSpeed() const { return Speed; }
+	FAnimNode_BlendSpacePlayer* GetLocomotionBlendSpace() const { return LocomotionBlendSpace; }
 	void RequestAttack() { bPendingAttack = true; }
 	void SetAttackTransitionRule(std::function<bool(bool)> Rule);
 	void RequestHit() { bPendingHit = true; }

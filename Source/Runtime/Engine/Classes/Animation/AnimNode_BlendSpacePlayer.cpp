@@ -34,6 +34,8 @@ void FAnimNode_BlendSpacePlayer::Update(const FAnimationUpdateContext& Context)
         
         float MaxTotalWeight = 0.0f;
         FBlendSampleData* Leader = nullptr;
+        float MaxNotifyWeight = 0.0f;
+        FBlendSampleData* NotifyLeader = nullptr;
 
         for(FBlendSampleData& Data : BlendSampleDataCache)
         { 
@@ -45,18 +47,24 @@ void FAnimNode_BlendSpacePlayer::Update(const FAnimationUpdateContext& Context)
                 MaxTotalWeight = Data.TotalWeight;
                 Leader = &Data;
             }
+            if(Data.Animation && !Data.Animation->Notifies.IsEmpty() && Data.TotalWeight > MaxNotifyWeight)
+            {
+                MaxNotifyWeight = Data.TotalWeight;
+                NotifyLeader = &Data;
+            }
         }
 
+        FBlendSampleData* ActiveLeader = (Leader && !Leader->Animation->Notifies.IsEmpty()) ? Leader : (NotifyLeader ? NotifyLeader : Leader);
         FAnimNotifyQueue* NotifyQueue = Context.GetAnimInstance() ? &Context.GetAnimInstance()->NotifyQueue : nullptr;
-        if(NotifyQueue && MaxTotalWeight > 0 && Leader != nullptr)
+        if(NotifyQueue && ActiveLeader != nullptr && ActiveLeader->Animation && ActiveLeader->TotalWeight > 0.0f)
         {
-            const float SampleLength = Leader->Animation->GetPlayLength();
+            const float SampleLength = BlendSpace->GetBlendSample(ActiveLeader->SampleDataIndex).GetSamplePlayLength();
             const float LeaderPrevTime = PrevNormTime * SampleLength;
             const float LeaderDeltaMove = DeltaNorm * SampleLength;
 
             FAnimNotifyContext NotifyContext;
             NotifyContext.bLooping = bLoop;
-            Leader->Animation->GetAnimNotifies(LeaderPrevTime, LeaderDeltaMove, NotifyContext);            
+            ActiveLeader->Animation->GetAnimNotifies(LeaderPrevTime, LeaderDeltaMove, NotifyContext);            
             NotifyQueue->AddAnimNotifies(NotifyContext.ActiveNotifies, NotifyQueue->AnimNotifies);
         }
     }

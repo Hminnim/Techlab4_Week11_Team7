@@ -11,10 +11,12 @@
 #include "Editor/Settings/SettingsPanel.h"
 #include "Engine/Classes/Animation/AnimSequence.h"
 #include "Engine/Classes/Animation/BonePose.h"
+#include "Asset/AssetManager.h"
 #include "Render/SkeletalMesh.h"
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 
 bool FAnimationSequenceEditorPanel::Init()
 {
@@ -152,6 +154,9 @@ bool FAnimationSequenceEditorPanel::OpenAsset(UAnimSequence* InSequence, USkelet
 	PreviewMeshComponent->ResetToReferencePose();
 	EditSequence = InSequence;
 	bPlaying = false;
+	SelectedNotifyIndex = INDEX_NONE;
+	DraggingNotifyIndex = INDEX_NONE;
+	EditNotifyName[0] = '\0';
 	SetPreviewTime(0.0f);
 	bFitTimeline = true;
 
@@ -257,10 +262,19 @@ void FAnimationSequenceEditorPanel::DrawAnimationTimeline()
 	}
 	TimelineView.PixelsPerSecond = std::max(TimelineView.PixelsPerSecond, FitScale);
 
+	const float HeaderY = Origin.y + RulerHeight;
+	const float LaneTop = HeaderY + HeaderHeight;
+	const float LaneBottom = LaneTop + LaneHeight;
+	const ImVec2 LaneMin{ AxisMin.x, LaneTop };
+	const ImVec2 LaneMax{ AxisMax.x, LaneBottom };
+
 	ImGui::SetCursorScreenPos(AxisMin);
 	ImGui::InvisibleButton("##AnimationTimelineInput", { AxisWidth, Size.y });
 	const ImGuiIO& IO = ImGui::GetIO();
-	if (ImGui::IsItemHovered())
+	const bool bInputHovered = ImGui::IsItemHovered();
+	const bool bInputActive = ImGui::IsItemActive();
+
+	if (bInputHovered)
 	{
 		if (IO.KeyCtrl && IO.MouseWheel != 0.0f)
 			TimelineView.ZoomAt(IO.MouseWheel > 0.0f ? 1.15f : 1.0f / 1.15f, IO.MousePos.x, AxisMin.x, FitScale, FitScale * 100.0f);
@@ -270,11 +284,78 @@ void FAnimationSequenceEditorPanel::DrawAnimationTimeline()
 	const float VisibleDuration = AxisWidth / TimelineView.PixelsPerSecond;
 	TimelineView.StartTime = std::clamp(TimelineView.StartTime, 0.0f, std::max(0.0f, Length - VisibleDuration));
 
-	if (ImGui::IsItemActive() && ImGui::IsMouseDown(ImGuiMouseButton_Left))
+	const bool bInNotifyLane = (IO.MousePos.y >= LaneTop && IO.MousePos.y <= LaneBottom);
+
+	// 좌클릭 시작: 노티파이 트랙 내 마커 히트 테스트
+	if (bInputHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
 	{
-		bPlaying = false;
-		const float MouseTime = TimelineView.XToTime(IO.MousePos.x, AxisMin.x);
-		SetPreviewTime(static_cast<float>(std::round(MouseTime * FPS) / FPS));
+		if (bInNotifyLane)
+		{
+			const int32 HitIdx = HitTestNotify(IO.MousePos.x, IO.MousePos.y, LaneMin, LaneMax);
+			if (HitIdx != INDEX_NONE)
+			{
+				SelectNotify(HitIdx);
+				DraggingNotifyIndex = HitIdx;
+			}
+			else
+			{
+				SelectNotify(INDEX_NONE);
+				DraggingNotifyIndex = INDEX_NONE;
+			}
+		}
+		else
+		{
+			DraggingNotifyIndex = INDEX_NONE;
+		}
+	}
+
+	// 좌클릭 드래그: 노티파이 이동 또는 플레이헤드 스크러빙
+	if (bInputActive && ImGui::IsMouseDown(ImGuiMouseButton_Left))
+	{
+		if (DraggingNotifyIndex != INDEX_NONE && EditSequence->Notifies.IsValidIndex(DraggingNotifyIndex))
+		{
+			float NewTime = std::clamp(TimelineView.XToTime(IO.MousePos.x, AxisMin.x), 0.0f, Length);
+			if (IO.KeyShift)
+			{
+				NewTime = static_cast<float>(std::round(NewTime * FPS) / FPS);
+			}
+			EditSequence->Notifies[DraggingNotifyIndex].TriggerTime = NewTime;
+			UAssetManager::Get().SyncAnimNotifiesByClipName(EditSequence);
+		}
+		else
+		{
+			bPlaying = false;
+			const float MouseTime = TimelineView.XToTime(IO.MousePos.x, AxisMin.x);
+			SetPreviewTime(static_cast<float>(std::round(MouseTime * FPS) / FPS));
+		}
+	}
+
+	if (ImGui::IsMouseReleased(ImGuiMouseButton_Left))
+	{
+		DraggingNotifyIndex = INDEX_NONE;
+	}
+
+	// 우클릭: 컨텍스트 메뉴 오픈 (노티파이 추가/삭제)
+	if (bInputHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Right))
+	{
+		if (bInNotifyLane)
+		{
+			const int32 HitIdx = HitTestNotify(IO.MousePos.x, IO.MousePos.y, LaneMin, LaneMax);
+			if (HitIdx != INDEX_NONE)
+			{
+				SelectNotify(HitIdx);
+			}
+		}
+		PendingNotifyTime = std::clamp(TimelineView.XToTime(IO.MousePos.x, AxisMin.x), 0.0f, Length);
+		ImGui::OpenPopup("##NotifyContextPopup");
+	}
+
+	// Delete 키 단축키: 선택된 노티파이 삭제
+	if (!IO.WantTextInput && EditSequence->Notifies.IsValidIndex(SelectedNotifyIndex) && ImGui::IsKeyPressed(ImGuiKey_Delete))
+	{
+		EditSequence->Notifies.RemoveAt(SelectedNotifyIndex);
+		UAssetManager::Get().SyncAnimNotifiesByClipName(EditSequence);
+		SelectNotify(INDEX_NONE);
 	}
 
 	ImDrawList* Draw = ImGui::GetWindowDrawList();
@@ -283,9 +364,6 @@ void FAnimationSequenceEditorPanel::DrawAnimationTimeline()
 	Draw->AddText({ Origin.x + 6.0f, Origin.y + 5.0f }, IM_COL32(180, 180, 180, 255), "Tracks");
 	EditorTimeline::DrawRuler(Draw, TimelineView, AxisMin, { AxisMax.x, Origin.y + RulerHeight }, AxisMax.y, FPS, true, true);
 
-	const float HeaderY = Origin.y + RulerHeight;
-	const float LaneTop = HeaderY + HeaderHeight;
-	const float LaneBottom = LaneTop + LaneHeight;
 	Draw->AddRectFilled({ Origin.x, HeaderY }, { AxisMax.x, LaneTop }, IM_COL32(45, 48, 52, 255));
 	char TrackLabel[64];
 	std::snprintf(TrackLabel, sizeof(TrackLabel), "Notifies (%d)", EditSequence->Notifies.Num());
@@ -294,25 +372,125 @@ void FAnimationSequenceEditorPanel::DrawAnimationTimeline()
 	Draw->AddLine({ Origin.x, LaneBottom }, { AxisMax.x, LaneBottom }, IM_COL32(65, 68, 72, 255));
 	Draw->AddLine({ AxisMin.x, Origin.y }, { AxisMin.x, AxisMax.y }, IM_COL32(65, 68, 72, 255));
 
-	Draw->PushClipRect({ AxisMin.x, LaneTop }, { AxisMax.x, LaneBottom }, true);
-	DrawNotifyTrack(Draw, { AxisMin.x, LaneTop }, { AxisMax.x, LaneBottom });
+	Draw->PushClipRect(LaneMin, LaneMax, true);
+	DrawNotifyTrack(Draw, LaneMin, LaneMax);
 	Draw->PopClipRect();
 	EditorTimeline::DrawPlayhead(Draw, TimelineView, CurrentTime, AxisMin, AxisMax);
+
+	if (ImGui::BeginPopup("##NotifyContextPopup"))
+	{
+		ImGui::Text("Time: %.3f sec", PendingNotifyTime);
+		ImGui::Separator();
+		ImGui::SetNextItemWidth(160.0f);
+		ImGui::InputText("Notify Name", NewNotifyName, sizeof(NewNotifyName));
+
+		auto AddNotifyWithName = [this](const char* InName)
+		{
+			FAnimNotifyEvent NewEvent;
+			NewEvent.TriggerTime = PendingNotifyTime;
+			NewEvent.Duration = 0.0f;
+			NewEvent.NotifyName = FName((InName && InName[0] != '\0') ? InName : "AnimNotify");
+			const int32 NewIdx = EditSequence->Notifies.Add(NewEvent);
+			UAssetManager::Get().SyncAnimNotifiesByClipName(EditSequence);
+			SelectNotify(NewIdx);
+		};
+
+		if (ImGui::Button("Add Notify"))
+		{
+			AddNotifyWithName(NewNotifyName);
+			ImGui::CloseCurrentPopup();
+		}
+
+		ImGui::Separator();
+		ImGui::TextDisabled("Quick Presets");
+		if (ImGui::MenuItem("Add 'Footstep'"))
+		{
+			AddNotifyWithName("Footstep");
+		}
+		if (ImGui::MenuItem("Add 'Attack_Slash'"))
+		{
+			AddNotifyWithName("Attack_Slash");
+		}
+		if (ImGui::MenuItem("Add 'Hit_Impact'"))
+		{
+			AddNotifyWithName("Hit_Impact");
+		}
+		if (ImGui::MenuItem("Add 'Jump_Landing'"))
+		{
+			AddNotifyWithName("Jump_Landing");
+		}
+
+		if (EditSequence->Notifies.IsValidIndex(SelectedNotifyIndex))
+		{
+			ImGui::Separator();
+			if (ImGui::MenuItem("Delete Selected Notify"))
+			{
+				EditSequence->Notifies.RemoveAt(SelectedNotifyIndex);
+				UAssetManager::Get().SyncAnimNotifiesByClipName(EditSequence);
+				SelectNotify(INDEX_NONE);
+			}
+		}
+		ImGui::EndPopup();
+	}
+}
+
+int32 FAnimationSequenceEditorPanel::HitTestNotify(float MouseX, float MouseY, const ImVec2& LaneMin, const ImVec2& LaneMax) const
+{
+	if (!EditSequence) return INDEX_NONE;
+	const float Length = EditSequence->GetPlayLength();
+	const float CenterY = LaneMin.y + 12.0f;
+
+	for (int32 i = EditSequence->Notifies.Num() - 1; i >= 0; --i)
+	{
+		const FAnimNotifyEvent& Notify = EditSequence->Notifies[i];
+		if (!std::isfinite(Notify.TriggerTime) || !std::isfinite(Notify.Duration) ||
+			Notify.TriggerTime < 0.0f || Notify.TriggerTime > Length || Notify.Duration < 0.0f) continue;
+
+		const float StartX = TimelineView.TimeToX(Notify.TriggerTime, LaneMin.x);
+		const float EndTime = static_cast<float>(std::min(static_cast<double>(Length), static_cast<double>(Notify.TriggerTime) + Notify.Duration));
+		const float EndX = TimelineView.TimeToX(EndTime, LaneMin.x);
+
+		const float HitLeft = std::max(LaneMin.x, StartX - 7.0f);
+		const float HitRight = std::min(LaneMax.x, std::max(EndX, StartX + 7.0f));
+		const float HitTop = CenterY - 9.0f;
+		const float HitBottom = CenterY + 9.0f;
+
+		if (MouseX >= HitLeft && MouseX <= HitRight && MouseY >= HitTop && MouseY <= HitBottom)
+		{
+			return i;
+		}
+	}
+	return INDEX_NONE;
+}
+
+void FAnimationSequenceEditorPanel::SelectNotify(int32 Index)
+{
+	if (!EditSequence || !EditSequence->Notifies.IsValidIndex(Index))
+	{
+		SelectedNotifyIndex = INDEX_NONE;
+		EditNotifyName[0] = '\0';
+		return;
+	}
+
+	SelectedNotifyIndex = Index;
+	const FString Name = EditSequence->Notifies[Index].NotifyName.ToString();
+	std::snprintf(EditNotifyName, sizeof(EditNotifyName), "%s", Name.c_str());
 }
 
 void FAnimationSequenceEditorPanel::DrawNotifyTrack(ImDrawList* Draw, const ImVec2& Min, const ImVec2& Max)
 {
 	if (EditSequence->Notifies.IsEmpty())
 	{
-		Draw->AddText({ Min.x + 8.0f, Min.y + 10.0f }, IM_COL32(130, 130, 130, 255), "No notifies");
+		Draw->AddText({ Min.x + 8.0f, Min.y + 10.0f }, IM_COL32(130, 130, 130, 255), "Right-click to add AnimNotify");
 		return;
 	}
 	const float Length = EditSequence->GetPlayLength();
 	const float CenterY = Min.y + 12.0f;
 	const bool bCanHover = ImGui::IsItemHovered();
 	bool bTooltipShown = false;
-	for (const FAnimNotifyEvent& Notify : EditSequence->Notifies)
+	for (int32 i = 0; i < EditSequence->Notifies.Num(); ++i)
 	{
+		const FAnimNotifyEvent& Notify = EditSequence->Notifies[i];
 		if (!std::isfinite(Notify.TriggerTime) || !std::isfinite(Notify.Duration) ||
 			Notify.TriggerTime < 0.0f || Notify.TriggerTime > Length || Notify.Duration < 0.0f) continue;
 
@@ -324,27 +502,43 @@ void FAnimationSequenceEditorPanel::DrawNotifyTrack(ImDrawList* Draw, const ImVe
 			if (EndX < Min.x || StartX > Max.x) continue;
 		}
 		else if (StartX < Min.x - 6.0f || StartX > Max.x + 6.0f) continue;
+
 		const FString Name = Notify.NotifyName.ToString();
 		const char* Label = Name.empty() ? "(Unnamed)" : Name.c_str();
-		const ImU32 Color = IM_COL32(100, 180, 240, 255);
+		const bool bSelected = (i == SelectedNotifyIndex);
+		const ImU32 Color = bSelected ? IM_COL32(255, 195, 50, 255) : IM_COL32(100, 180, 240, 255);
+
+		Draw->AddLine({ StartX, Min.y }, { StartX, Max.y },
+			bSelected ? IM_COL32(255, 195, 50, 140) : IM_COL32(100, 180, 240, 80), 1.0f);
+
 		if (Notify.Duration > 0.0f)
 		{
 			const float Left = std::clamp(StartX, Min.x, Max.x - 2.0f);
 			const float Right = std::clamp(EndX, Left + 2.0f, Max.x);
 			Draw->AddRectFilled({ Left, CenterY - 7.0f }, { Right, CenterY + 7.0f }, Color, 2.0f);
+			if (bSelected)
+			{
+				Draw->AddRect({ Left, CenterY - 7.0f }, { Right, CenterY + 7.0f }, IM_COL32(255, 255, 255, 255), 2.0f, 0, 1.5f);
+			}
 		}
 		else
 		{
 			Draw->AddQuadFilled({ StartX, CenterY - 6.0f }, { StartX + 6.0f, CenterY },
 				{ StartX, CenterY + 6.0f }, { StartX - 6.0f, CenterY }, Color);
+			if (bSelected)
+			{
+				Draw->AddQuad({ StartX, CenterY - 6.0f }, { StartX + 6.0f, CenterY },
+					{ StartX, CenterY + 6.0f }, { StartX - 6.0f, CenterY }, IM_COL32(255, 255, 255, 255), 1.5f);
+			}
 		}
-		Draw->AddText({ StartX + 8.0f, CenterY + 10.0f }, IM_COL32(220, 220, 220, 255), Label);
+		Draw->AddText({ StartX + 8.0f, CenterY + 10.0f },
+			bSelected ? IM_COL32(255, 230, 130, 255) : IM_COL32(220, 220, 220, 255), Label);
 
 		const ImVec2 HitMin{ std::max(Min.x, StartX - 6.0f), CenterY - 8.0f };
 		const ImVec2 HitMax{ std::min(Max.x, std::max(EndX, StartX + 6.0f)), CenterY + 8.0f };
 		if (bCanHover && !bTooltipShown && ImGui::IsMouseHoveringRect(HitMin, HitMax))
 		{
-			ImGui::SetTooltip("%s\nTime: %.3f sec\nDuration: %.3f sec", Label, Notify.TriggerTime, Notify.Duration);
+			ImGui::SetTooltip("%s\nTime: %.3f sec\nDuration: %.3f sec\n(Drag to move, Shift+Drag to snap)", Label, Notify.TriggerTime, Notify.Duration);
 			bTooltipShown = true;
 		}
 	}
@@ -415,8 +609,71 @@ void FAnimationSequenceEditorPanel::DrawSequenceInfo()
 	const FString Name = Separator == FString::npos ? Key : Key.substr(Separator + 1);
 	ImGui::Text("Animation: %s", Name.c_str());
 	if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", Key.c_str());
-	ImGui::Text("Length: %.3f sec | FPS: %.2f | Sampled Keys: %d",
+	ImGui::SameLine(0.0f, 16.0f);
+	ImGui::TextDisabled("Length: %.3f sec | FPS: %.2f | Keys: %d",
 		EditSequence->GetPlayLength(), EditSequence->GetSamplingFrameRate().AsDecimal(), EditSequence->GetNumberOfSampledKeys());
+
+	DrawSelectedNotifyInspector();
+}
+
+void FAnimationSequenceEditorPanel::DrawSelectedNotifyInspector()
+{
+	if (!EditSequence) return;
+
+	const float Length = EditSequence->GetPlayLength();
+
+	ImGui::SetNextItemWidth(130.0f);
+	ImGui::InputText("##QuickNotifyName", NewNotifyName, sizeof(NewNotifyName));
+	if (ImGui::IsItemHovered()) ImGui::SetTooltip("New AnimNotify Name");
+	ImGui::SameLine();
+	if (ImGui::Button("+ Add Notify @ Playhead"))
+	{
+		FAnimNotifyEvent NewEvent;
+		NewEvent.TriggerTime = std::clamp(CurrentTime, 0.0f, Length);
+		NewEvent.Duration = 0.0f;
+		NewEvent.NotifyName = FName((NewNotifyName[0] != '\0') ? NewNotifyName : "AnimNotify");
+		const int32 NewIdx = EditSequence->Notifies.Add(NewEvent);
+		UAssetManager::Get().SyncAnimNotifiesByClipName(EditSequence);
+		SelectNotify(NewIdx);
+	}
+
+	if (EditSequence->Notifies.IsValidIndex(SelectedNotifyIndex))
+	{
+		FAnimNotifyEvent& Notify = EditSequence->Notifies[SelectedNotifyIndex];
+		ImGui::SameLine(0.0f, 16.0f);
+		ImGui::TextColored(ImVec4(1.0f, 0.78f, 0.2f, 1.0f), "Selected [%d]:", SelectedNotifyIndex);
+		ImGui::SameLine();
+		ImGui::SetNextItemWidth(130.0f);
+		if (ImGui::InputText("Name##EditNotify", EditNotifyName, sizeof(EditNotifyName)))
+		{
+			Notify.NotifyName = FName((EditNotifyName[0] != '\0') ? EditNotifyName : "AnimNotify");
+			UAssetManager::Get().SyncAnimNotifiesByClipName(EditSequence);
+		}
+		ImGui::SameLine();
+		ImGui::SetNextItemWidth(80.0f);
+		if (ImGui::DragFloat("Time##EditNotify", &Notify.TriggerTime, 0.005f, 0.0f, Length, "%.3fs", ImGuiSliderFlags_AlwaysClamp))
+		{
+			UAssetManager::Get().SyncAnimNotifiesByClipName(EditSequence);
+		}
+		ImGui::SameLine();
+		ImGui::SetNextItemWidth(80.0f);
+		if (ImGui::DragFloat("Dur##EditNotify", &Notify.Duration, 0.005f, 0.0f, std::max(0.0f, Length - Notify.TriggerTime), "%.3fs", ImGuiSliderFlags_AlwaysClamp))
+		{
+			UAssetManager::Get().SyncAnimNotifiesByClipName(EditSequence);
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("Delete##EditNotify"))
+		{
+			EditSequence->Notifies.RemoveAt(SelectedNotifyIndex);
+			UAssetManager::Get().SyncAnimNotifiesByClipName(EditSequence);
+			SelectNotify(INDEX_NONE);
+		}
+	}
+	else
+	{
+		ImGui::SameLine(0.0f, 16.0f);
+		ImGui::TextDisabled("(Right-click Notify track to add / Left-click & drag marker to move)");
+	}
 }
 
 UWorld* FAnimationSequenceEditorPanel::ReleasePreviewWorld()
@@ -425,6 +682,9 @@ UWorld* FAnimationSequenceEditorPanel::ReleasePreviewWorld()
 	ViewportClient.SetWorld(nullptr);
 	bPlaying = false;
 	EditSequence = nullptr;
+	SelectedNotifyIndex = INDEX_NONE;
+	DraggingNotifyIndex = INDEX_NONE;
+	EditNotifyName[0] = '\0';
 	CurrentTime = 0.0f;
 	TimelineView = {};
 	bFitTimeline = true;

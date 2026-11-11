@@ -632,6 +632,25 @@ namespace
 			"RequestAnimJump", [](const FLuaActorRef& Ref) { return CharacterAnimationOf(Ref).RequestJump(); },
 			"NotifyAnimLanded", [](const FLuaActorRef& Ref) { CharacterAnimationOf(Ref).NotifyLanded(); },
 			"SetRestartHitOnReentry", [](const FLuaActorRef& Ref, bool bEnabled) { CharacterAnimationOf(Ref).SetRestartHitOnReentry(bEnabled); },
+			"BindAnimNotify", [](const FLuaActorRef& Ref, const FString& NotifyName, sol::protected_function Callback)
+			{
+				if (NotifyName.empty() || !Callback.valid())
+					throw sol::error("BindAnimNotify requires a non-empty notify name and a valid function.");
+				UAnimInstance* AnimInst = SkeletalMeshComponentOf(Ref).GetAnimInstance();
+				if (!AnimInst)
+					throw sol::error("Configure character animations or start an anim graph before calling BindAnimNotify.");
+				sol::main_protected_function MainFn = std::move(Callback);
+				AnimInst->AddExternalNotifyHandler(FName(NotifyName), [Ref, MainFn = std::move(MainFn)]()
+				{
+					if (!Ref.Get()) return;
+					sol::protected_function_result Res = MainFn();
+					if (!Res.valid())
+					{
+						sol::error Err = Res;
+						HTR_LOG(Error, "[Lua] BindAnimNotify error: {}", Err.what());
+					}
+				});
+			},
 
 			"PlaySequence", [](const FLuaActorRef& Ref) { if (ULevelSequencePlayer* P = SequencePlayerOf(Ref)) P->Play(); },
 			"PauseSequence", [](const FLuaActorRef& Ref) { if (ULevelSequencePlayer* P = SequencePlayerOf(Ref)) P->Pause(); },

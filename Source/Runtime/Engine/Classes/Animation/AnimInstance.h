@@ -14,6 +14,7 @@ class APawn;
 struct FAnimNode_Base;
 
 using FAnimNotifyDelegate = TDelegate<>;
+using FAnimNotifyEventDelegate = TDelegate<const FName&, const FString&>;
 
 UCLASS()
 class UAnimInstance : public UObject
@@ -35,8 +36,10 @@ protected:
 
 public:
 	FAnimNotifyQueue NotifyQueue;
+	FAnimNotifyEventDelegate OnAnimNotify;
 
 	void TriggerAnimNotifies(float DeltaSeconds);
+	virtual void HandleAnimNotify(const FAnimNotifyEvent& NotifyEvent, const UAnimSequenceBase* NotifySource, const FString& ClipName) {}
 
 	TMap<FName, TUniquePtr<FAnimNotifyDelegate>, FNameHash> ExternalNotifyHandlers;
 
