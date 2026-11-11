@@ -1,10 +1,12 @@
 -- UAL1_Standard 스켈레탈 메시 액터의 ScriptPath에 연결한 뒤 PIE에서 사용한다.
--- 이동 컴포넌트가 없는 액터에서는 W 걷기, Shift+W 달리기를 제자리에서 미리 본다.
+-- CharacterCamera가 있는 액터는 WASD 이동, Shift 달리기, 좌클릭 공격을 사용한다.
 local pack = "Assets/Models/UAL1/UAL1_Standard.fbx"
+local locomotionPack = "Assets/Models/UAL1/UAL1_Standard_RM.fbx"
 local walkSpeed = 1.0
 local sprintSpeed = 3.0
 local previewSpeed
 local useMovementVelocity
+local hasFollowCamera
 local ready = false
 local attackEnabled = true -- false로 바꾸면 Lua 전이 규칙이 공격을 막는다.
 local airTime = 1.8
@@ -22,8 +24,10 @@ local function ResetJump()
 end
 
 local function Setup()
+    SetAnimRootMotion(locomotionPack, "Walk_Loop", true)
+    SetAnimRootMotion(locomotionPack, "Sprint_Loop", true)
     ready = obj:ConfigureCharacterAnimations(
-        pack, pack, pack,
+        locomotionPack, pack, pack,
         "Armature|Idle_Loop", "Armature|Sword_Attack", "Armature|Hit_Chest",
         {
             path = pack,
@@ -39,11 +43,16 @@ local function Setup()
     )
     previewSpeed = 0
     useMovementVelocity = obj:HasComponent("UMovementComponent")
+    hasFollowCamera = GetComponentByName("CharacterCamera") ~= nil
     ResetJump()
     obj:SetAnimAttackRule(function(requested)
         return requested and attackEnabled
     end)
     obj:SetRestartHitOnReentry(script_state.restartHit == true)
+    if hasFollowCamera then
+        obj:ResetCameraLag()
+        SetViewTargetWithBlend(obj, 0)
+    end
 end
 
 local function UpdateJump(dt)
@@ -79,7 +88,19 @@ local function UpdateLocomotion(dt)
         local velocity = obj.Velocity
         obj:SetAnimSpeed(math.sqrt(velocity.x * velocity.x + velocity.y * velocity.y))
     else
-        local target = IsKeyDown("W") and (IsKeyDown("shift") and sprintSpeed or walkSpeed) or 0
+        local moving = IsKeyDown("W")
+        if hasFollowCamera then
+            local x = (IsKeyDown("S") and 1 or 0) - (moving and 1 or 0)
+            local y = (IsKeyDown("A") and 1 or 0) - (IsKeyDown("D") and 1 or 0)
+            moving = x ~= 0 or y ~= 0
+            if moving then
+                -- UAL1 루트 모션의 전진 방향은 로컬 -X다.
+                local rotation = obj.Rotation
+                rotation:LookDirection(FVector(-x, -y, 0))
+                obj.Rotation = rotation
+            end
+        end
+        local target = moving and (IsKeyDown("shift") and sprintSpeed or walkSpeed) or 0
         local step = sprintSpeed * dt
         previewSpeed = previewSpeed + math.max(-step, math.min(step, target - previewSpeed))
         obj:SetAnimSpeed(previewSpeed)
@@ -90,7 +111,11 @@ function Tick(dt)
     if not ready then return end
 
     UpdateLocomotion(dt)
-    if IsKeyPressed("A") then
+    local attackPressed = IsKeyPressed("A")
+    if hasFollowCamera then
+        attackPressed = IsLeftMouseButtonPressed()
+    end
+    if attackPressed then
         obj:RequestAnimAttack()
     end
     if IsKeyPressed("H") then
