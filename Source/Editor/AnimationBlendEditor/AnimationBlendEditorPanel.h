@@ -65,7 +65,7 @@ private:
 	FBlendTarget ResolveTarget();
 
 	void DrawTargetToolbar(const FBlendTarget& Target);
-	void DrawPreviewViewport();
+	void DrawPreviewViewport(float ReservedBottomHeight);
 	void TickCameraInput();
 
 	void DrawBlendSpaceTab(const FBlendTarget& Target);

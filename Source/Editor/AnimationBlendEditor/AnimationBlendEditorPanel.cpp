@@ -366,7 +366,7 @@ void FAnimationBlendEditorPanel::Tick(float DeltaTime)
 
 void FAnimationBlendEditorPanel::OnRender()
 {
-	ImGui::SetNextWindowSize(ImVec2(760.0f, 680.0f), ImGuiCond_FirstUseEver);
+	ImGui::SetNextWindowSize(ImVec2(1100.0f, 900.0f), ImGuiCond_FirstUseEver);
 	if (bRequestFocus)
 	{
 		ImGui::SetNextWindowFocus();
@@ -440,9 +440,11 @@ void FAnimationBlendEditorPanel::DrawTargetToolbar(const FBlendTarget& Target)
 	}
 }
 
-void FAnimationBlendEditorPanel::DrawPreviewViewport()
+void FAnimationBlendEditorPanel::DrawPreviewViewport(float ReservedBottomHeight)
 {
-	const float ViewportHeight = std::clamp(ImGui::GetContentRegionAvail().y * 0.45f, 180.0f, 300.0f);
+	const float AvailY = std::max(1.0f, ImGui::GetContentRegionAvail().y);
+	const float MinViewportHeight = std::min(320.0f, AvailY * 0.6f);
+	const float ViewportHeight = std::max(MinViewportHeight, AvailY - ReservedBottomHeight);
 	if (ImGui::BeginChild("##BlendPreviewViewportChild", ImVec2(0.0f, ViewportHeight), ImGuiChildFlags_Borders,
 		ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse))
 	{
@@ -496,7 +498,15 @@ void FAnimationBlendEditorPanel::DrawBlendSpaceTab(const FBlendTarget& Target)
 {
 	if (!Target.bIsSceneTarget)
 	{
-		DrawPreviewViewport();
+		const ImGuiStyle& Style = ImGui::GetStyle();
+		const float LineH = ImGui::GetTextLineHeightWithSpacing();
+		const float FrameH = ImGui::GetFrameHeightWithSpacing();
+		const float CanvasSectionH = LineH + 112.0f + FrameH + Style.ItemSpacing.y * 4.0f;
+		const int32 SampleCount = (Target.BlendSpacePlayer && Target.BlendSpacePlayer->BlendSpace)
+			? Target.BlendSpacePlayer->BlendSpace->SampleData.Num() : 4;
+		const int32 VisibleSamples = std::clamp(SampleCount, 2, 6);
+		const float DetailsSectionH = LineH + 10.0f + FrameH * static_cast<float>(VisibleSamples + 1) + Style.ItemSpacing.y * 4.0f + 12.0f;
+		DrawPreviewViewport(CanvasSectionH + DetailsSectionH);
 		ImGui::Spacing();
 	}
 
@@ -507,9 +517,13 @@ void FAnimationBlendEditorPanel::DrawBlendSpaceTab(const FBlendTarget& Target)
 		return;
 	}
 
-	DrawBlendSpaceCanvas(*Target.BlendSpacePlayer, Target.SpeedPtr);
-	ImGui::Spacing();
-	DrawBlendSpaceDetails(*Target.BlendSpacePlayer, Target.SpeedPtr, Target.CharacterInst);
+	if (ImGui::BeginChild("##BlendSpaceControls", ImVec2(0.0f, 0.0f), ImGuiChildFlags_None))
+	{
+		DrawBlendSpaceCanvas(*Target.BlendSpacePlayer, Target.SpeedPtr);
+		ImGui::Spacing();
+		DrawBlendSpaceDetails(*Target.BlendSpacePlayer, Target.SpeedPtr, Target.CharacterInst);
+	}
+	ImGui::EndChild();
 }
 
 void FAnimationBlendEditorPanel::DrawBlendSpaceCanvas(FAnimNode_BlendSpacePlayer& BSPlayer, float* SpeedPtr)
@@ -844,7 +858,10 @@ void FAnimationBlendEditorPanel::DrawTwoWayBlendTab(const FBlendTarget& Target)
 {
 	if (!Target.bIsSceneTarget)
 	{
-		DrawPreviewViewport();
+		const ImGuiStyle& Style = ImGui::GetStyle();
+		const float FrameH = ImGui::GetFrameHeightWithSpacing();
+		const float ReservedBottomHeight = FrameH * 3.0f + 42.0f + 18.0f + Style.ItemSpacing.y * 5.0f + 16.0f;
+		DrawPreviewViewport(ReservedBottomHeight);
 		ImGui::Spacing();
 	}
 
@@ -855,145 +872,149 @@ void FAnimationBlendEditorPanel::DrawTwoWayBlendTab(const FBlendTarget& Target)
 		return;
 	}
 
-	FAnimNode_TwoWayBlend& BlendNode = *Target.TwoWayBlend;
-	float& Alpha = *Target.TwoWayAlphaPtr;
-	Alpha = std::clamp(Alpha, 0.0f, 1.0f);
-
-	if (!Target.bIsSceneTarget && StandaloneAnimInst)
+	if (ImGui::BeginChild("##TwoWayBlendControls", ImVec2(0.0f, 0.0f), ImGuiChildFlags_None))
 	{
-		if (ImGui::Checkbox("Use Locomotion BlendSpace as Input A", &bUseBlendSpaceForA))
-		{
-			StandaloneAnimInst->SetUseBlendSpaceForA(bUseBlendSpaceForA);
-		}
-		ImGui::SameLine();
-		ImGui::BeginDisabled(bUseBlendSpaceForA);
-		if (ImGui::Button("Swap A <-> B"))
-		{
-			std::swap(ClipAIndex, ClipBIndex);
-			if (AvailableClips.IsValidIndex(ClipAIndex))
-			{
-				StandaloneAnimInst->TwoWayPlayerA.SetSequence(AvailableClips[ClipAIndex].Sequence);
-				StandaloneAnimInst->TwoWayPlayerA.SetCurrentPlayTime(0.0f);
-			}
-			if (AvailableClips.IsValidIndex(ClipBIndex))
-			{
-				StandaloneAnimInst->TwoWayPlayerB.SetSequence(AvailableClips[ClipBIndex].Sequence);
-				StandaloneAnimInst->TwoWayPlayerB.SetCurrentPlayTime(0.0f);
-			}
-		}
-		ImGui::EndDisabled();
+		FAnimNode_TwoWayBlend& BlendNode = *Target.TwoWayBlend;
+		float& Alpha = *Target.TwoWayAlphaPtr;
+		Alpha = std::clamp(Alpha, 0.0f, 1.0f);
 
-		if (bUseBlendSpaceForA)
+		if (!Target.bIsSceneTarget && StandaloneAnimInst)
 		{
-			const UBlendSpace* BS = StandaloneAnimInst->TwoWayBlendSpaceA.BlendSpace.get();
-			const float MaxX = (BS && BS->SampleData.Num() > 0) ? BS->SampleData[BS->SampleData.Num() - 1].SamepleVector.X : 600.0f;
-			ImGui::SetNextItemWidth(220.0f);
-			ImGui::SliderFloat("Input A BlendSpace Speed", &StandaloneAnimInst->BlendSpaceSpeed, 0.0f, MaxX, "%.1f");
-		}
-		else
-		{
-			DrawTwoWayClipSelector("Input A Clip", ClipAIndex, StandaloneAnimInst->TwoWayPlayerA, PreviewWorld);
-		}
-		ImGui::SameLine();
-		DrawTwoWayClipSelector("Input B Clip", ClipBIndex, StandaloneAnimInst->TwoWayPlayerB, PreviewWorld);
-	}
-	else if (Target.BlendSpacePlayer && Target.CharacterInst)
-	{
-		bool bOverride = Target.CharacterInst->IsSpeedOverrideEnabled();
-		float SpeedVal = Target.BlendSpacePlayer->X;
-		if (ImGui::Checkbox("Override Input A BlendSpace Speed", &bOverride))
-		{
-			Target.CharacterInst->SetSpeedOverride(bOverride, SpeedVal);
-		}
-		if (bOverride)
-		{
-			const UBlendSpace* BS = Target.BlendSpacePlayer->BlendSpace.get();
-			const float MaxX = (BS && BS->SampleData.Num() > 0) ? BS->SampleData[BS->SampleData.Num() - 1].SamepleVector.X : 3.0f;
+			if (ImGui::Checkbox("Use Locomotion BlendSpace as Input A", &bUseBlendSpaceForA))
+			{
+				StandaloneAnimInst->SetUseBlendSpaceForA(bUseBlendSpaceForA);
+			}
 			ImGui::SameLine();
-			ImGui::SetNextItemWidth(160.0f);
-			if (ImGui::SliderFloat("##TWInputASpeed", &SpeedVal, 0.0f, MaxX, "%.2f"))
+			ImGui::BeginDisabled(bUseBlendSpaceForA);
+			if (ImGui::Button("Swap A <-> B"))
 			{
-				Target.CharacterInst->SetSpeedOverride(true, SpeedVal);
+				std::swap(ClipAIndex, ClipBIndex);
+				if (AvailableClips.IsValidIndex(ClipAIndex))
+				{
+					StandaloneAnimInst->TwoWayPlayerA.SetSequence(AvailableClips[ClipAIndex].Sequence);
+					StandaloneAnimInst->TwoWayPlayerA.SetCurrentPlayTime(0.0f);
+				}
+				if (AvailableClips.IsValidIndex(ClipBIndex))
+				{
+					StandaloneAnimInst->TwoWayPlayerB.SetSequence(AvailableClips[ClipBIndex].Sequence);
+					StandaloneAnimInst->TwoWayPlayerB.SetCurrentPlayTime(0.0f);
+				}
+			}
+			ImGui::EndDisabled();
+
+			if (bUseBlendSpaceForA)
+			{
+				const UBlendSpace* BS = StandaloneAnimInst->TwoWayBlendSpaceA.BlendSpace.get();
+				const float MaxX = (BS && BS->SampleData.Num() > 0) ? BS->SampleData[BS->SampleData.Num() - 1].SamepleVector.X : 600.0f;
+				ImGui::SetNextItemWidth(220.0f);
+				ImGui::SliderFloat("Input A BlendSpace Speed", &StandaloneAnimInst->BlendSpaceSpeed, 0.0f, MaxX, "%.1f");
+			}
+			else
+			{
+				DrawTwoWayClipSelector("Input A Clip", ClipAIndex, StandaloneAnimInst->TwoWayPlayerA, PreviewWorld);
+			}
+			ImGui::SameLine();
+			DrawTwoWayClipSelector("Input B Clip", ClipBIndex, StandaloneAnimInst->TwoWayPlayerB, PreviewWorld);
+		}
+		else if (Target.BlendSpacePlayer && Target.CharacterInst)
+		{
+			bool bOverride = Target.CharacterInst->IsSpeedOverrideEnabled();
+			float SpeedVal = Target.BlendSpacePlayer->X;
+			if (ImGui::Checkbox("Override Input A BlendSpace Speed", &bOverride))
+			{
+				Target.CharacterInst->SetSpeedOverride(bOverride, SpeedVal);
+			}
+			if (bOverride)
+			{
+				const UBlendSpace* BS = Target.BlendSpacePlayer->BlendSpace.get();
+				const float MaxX = (BS && BS->SampleData.Num() > 0) ? BS->SampleData[BS->SampleData.Num() - 1].SamepleVector.X : 3.0f;
+				ImGui::SameLine();
+				ImGui::SetNextItemWidth(160.0f);
+				if (ImGui::SliderFloat("##TWInputASpeed", &SpeedVal, 0.0f, MaxX, "%.2f"))
+				{
+					Target.CharacterInst->SetSpeedOverride(true, SpeedVal);
+				}
 			}
 		}
-	}
 
-	ImGui::Separator();
+		ImGui::Separator();
 
-	// 시각적 Alpha 혼합 바
-	const float BarWidth = std::max(ImGui::GetContentRegionAvail().x, 150.0f);
-	const float BarHeight = 42.0f;
-	const ImVec2 P0 = ImGui::GetCursorScreenPos();
-	const ImVec2 P1(P0.x + BarWidth, P0.y + BarHeight);
-	const float Pad = 18.0f;
-	const float Usable = std::max(BarWidth - Pad * 2.0f, 10.0f);
-	const float CenterY = P0.y + BarHeight * 0.5f;
+		// 시각적 Alpha 혼합 바
+		const float BarWidth = std::max(ImGui::GetContentRegionAvail().x, 150.0f);
+		const float BarHeight = 42.0f;
+		const ImVec2 P0 = ImGui::GetCursorScreenPos();
+		const ImVec2 P1(P0.x + BarWidth, P0.y + BarHeight);
+		const float Pad = 18.0f;
+		const float Usable = std::max(BarWidth - Pad * 2.0f, 10.0f);
+		const float CenterY = P0.y + BarHeight * 0.5f;
 
-	ImDrawList* Draw = ImGui::GetWindowDrawList();
-	ImGui::InvisibleButton("##TwoWayAlphaBar", ImVec2(BarWidth, BarHeight), ImGuiButtonFlags_MouseButtonLeft);
-	if (ImGui::IsItemActive() && ImGui::IsMouseDown(ImGuiMouseButton_Left))
-	{
-		bAutoPingPongAlpha = false;
-		const float MouseX = std::clamp(ImGui::GetIO().MousePos.x, P0.x + Pad, P0.x + Pad + Usable);
-		Alpha = (MouseX - (P0.x + Pad)) / Usable;
-	}
+		ImDrawList* Draw = ImGui::GetWindowDrawList();
+		ImGui::InvisibleButton("##TwoWayAlphaBar", ImVec2(BarWidth, BarHeight), ImGuiButtonFlags_MouseButtonLeft);
+		if (ImGui::IsItemActive() && ImGui::IsMouseDown(ImGuiMouseButton_Left))
+		{
+			bAutoPingPongAlpha = false;
+			const float MouseX = std::clamp(ImGui::GetIO().MousePos.x, P0.x + Pad, P0.x + Pad + Usable);
+			Alpha = (MouseX - (P0.x + Pad)) / Usable;
+		}
 
-	Draw->AddRectFilled(P0, P1, IM_COL32(24, 26, 30, 255), 6.0f);
-	Draw->AddRect(P0, P1, IM_COL32(65, 68, 78, 255), 6.0f);
-	const float HandleX = P0.x + Pad + Alpha * Usable;
-	Draw->AddRectFilled(ImVec2(P0.x + Pad, CenterY - 4.0f), ImVec2(HandleX, CenterY + 4.0f), IM_COL32(70, 145, 245, 220), 2.0f);
-	Draw->AddRectFilled(ImVec2(HandleX, CenterY - 4.0f), ImVec2(P0.x + Pad + Usable, CenterY + 4.0f), IM_COL32(235, 130, 60, 220), 2.0f);
-	Draw->AddCircleFilled(ImVec2(HandleX, CenterY), 8.0f, IM_COL32(255, 255, 255, 255));
+		Draw->AddRectFilled(P0, P1, IM_COL32(24, 26, 30, 255), 6.0f);
+		Draw->AddRect(P0, P1, IM_COL32(65, 68, 78, 255), 6.0f);
+		const float HandleX = P0.x + Pad + Alpha * Usable;
+		Draw->AddRectFilled(ImVec2(P0.x + Pad, CenterY - 4.0f), ImVec2(HandleX, CenterY + 4.0f), IM_COL32(70, 145, 245, 220), 2.0f);
+		Draw->AddRectFilled(ImVec2(HandleX, CenterY - 4.0f), ImVec2(P0.x + Pad + Usable, CenterY + 4.0f), IM_COL32(235, 130, 60, 220), 2.0f);
+		Draw->AddCircleFilled(ImVec2(HandleX, CenterY), 8.0f, IM_COL32(255, 255, 255, 255));
 
-	ImGui::SetNextItemWidth(220.0f);
-	if (ImGui::SliderFloat("Alpha (0 = A, 1 = B)", &Alpha, 0.0f, 1.0f, "%.3f"))
-	{
-		bAutoPingPongAlpha = false;
-	}
-	ImGui::SameLine();
-	if (ImGui::SmallButton("0.0 (A)")) { Alpha = 0.0f; bAutoPingPongAlpha = false; }
-	ImGui::SameLine();
-	if (ImGui::SmallButton("0.5")) { Alpha = 0.5f; bAutoPingPongAlpha = false; }
-	ImGui::SameLine();
-	if (ImGui::SmallButton("1.0 (B)")) { Alpha = 1.0f; bAutoPingPongAlpha = false; }
-	ImGui::SameLine();
-	ImGui::Checkbox("Auto Ping-Pong", &bAutoPingPongAlpha);
-	if (bAutoPingPongAlpha)
-	{
+		ImGui::SetNextItemWidth(220.0f);
+		if (ImGui::SliderFloat("Alpha (0 = A, 1 = B)", &Alpha, 0.0f, 1.0f, "%.3f"))
+		{
+			bAutoPingPongAlpha = false;
+		}
 		ImGui::SameLine();
-		ImGui::SetNextItemWidth(90.0f);
-		ImGui::SliderFloat("##PingPongSpd", &PingPongSpeed, 0.1f, 2.5f, "%.1fx");
-	}
-
-	auto DescribeNode = [](const FAnimNode_Base* Node) -> FString
-	{
-		if (const auto* Seq = dynamic_cast<const FAnimNode_SequencePlayer*>(Node))
+		if (ImGui::SmallButton("0.0 (A)")) { Alpha = 0.0f; bAutoPingPongAlpha = false; }
+		ImGui::SameLine();
+		if (ImGui::SmallButton("0.5")) { Alpha = 0.5f; bAutoPingPongAlpha = false; }
+		ImGui::SameLine();
+		if (ImGui::SmallButton("1.0 (B)")) { Alpha = 1.0f; bAutoPingPongAlpha = false; }
+		ImGui::SameLine();
+		ImGui::Checkbox("Auto Ping-Pong", &bAutoPingPongAlpha);
+		if (bAutoPingPongAlpha)
 		{
-			return ExtractShortClipName(Seq->GetSequence());
+			ImGui::SameLine();
+			ImGui::SetNextItemWidth(90.0f);
+			ImGui::SliderFloat("##PingPongSpd", &PingPongSpeed, 0.1f, 2.5f, "%.1fx");
 		}
-		if (dynamic_cast<const FAnimNode_BlendSpacePlayer*>(Node))
+
+		auto DescribeNode = [](const FAnimNode_Base* Node) -> FString
 		{
-			return "Locomotion BlendSpace";
+			if (const auto* Seq = dynamic_cast<const FAnimNode_SequencePlayer*>(Node))
+			{
+				return ExtractShortClipName(Seq->GetSequence());
+			}
+			if (dynamic_cast<const FAnimNode_BlendSpacePlayer*>(Node))
+			{
+				return "Locomotion BlendSpace";
+			}
+			return "Pose Node";
+		};
+
+		const FString NameA = DescribeNode(BlendNode.A.LinkedNode);
+		const FString NameB = DescribeNode(BlendNode.B.LinkedNode);
+
+		if (ImGui::BeginTable("##TwoWayWeights", 2, ImGuiTableFlags_SizingStretchSame))
+		{
+			ImGui::TableNextColumn();
+			char BufA[96];
+			std::snprintf(BufA, sizeof(BufA), "Input A (%s): %.1f%%", NameA.c_str(), (1.0f - Alpha) * 100.0f);
+			ImGui::ProgressBar(1.0f - Alpha, ImVec2(-1.0f, 18.0f), BufA);
+
+			ImGui::TableNextColumn();
+			char BufB[96];
+			std::snprintf(BufB, sizeof(BufB), "Input B (%s): %.1f%%", NameB.c_str(), Alpha * 100.0f);
+			ImGui::ProgressBar(Alpha, ImVec2(-1.0f, 18.0f), BufB);
+			ImGui::EndTable();
 		}
-		return "Pose Node";
-	};
-
-	const FString NameA = DescribeNode(BlendNode.A.LinkedNode);
-	const FString NameB = DescribeNode(BlendNode.B.LinkedNode);
-
-	if (ImGui::BeginTable("##TwoWayWeights", 2, ImGuiTableFlags_SizingStretchSame))
-	{
-		ImGui::TableNextColumn();
-		char BufA[96];
-		std::snprintf(BufA, sizeof(BufA), "Input A (%s): %.1f%%", NameA.c_str(), (1.0f - Alpha) * 100.0f);
-		ImGui::ProgressBar(1.0f - Alpha, ImVec2(-1.0f, 18.0f), BufA);
-
-		ImGui::TableNextColumn();
-		char BufB[96];
-		std::snprintf(BufB, sizeof(BufB), "Input B (%s): %.1f%%", NameB.c_str(), Alpha * 100.0f);
-		ImGui::ProgressBar(Alpha, ImVec2(-1.0f, 18.0f), BufB);
-		ImGui::EndTable();
 	}
+	ImGui::EndChild();
 }
 
 UWorld* FAnimationBlendEditorPanel::ReleasePreviewWorld()
