@@ -212,3 +212,17 @@ void UCharacterAnimInstance::HandleAnimNotify(const FAnimNotifyEvent& NotifyEven
 	HTR_LOG(Info, "[CharacterAnimInstance] Received Notify '{}' from '{}' (State: {})",
 		NotifyEvent.NotifyName.ToString(), ClipName, GetCurrentStateName().ToString());
 }
+
+void UCharacterAnimInstance::HandleAnimNotifyBegin(const FAnimNotifyEvent& NotifyEvent, const UAnimSequenceBase* NotifySource, const FString& ClipName, float TotalDuration)
+{
+	(void)NotifySource;
+	HTR_LOG(Info, "[CharacterAnimInstance] NotifyState Begin '{}' from '{}' (Duration: {:.3f}s, State: {})",
+		NotifyEvent.NotifyName.ToString(), ClipName, TotalDuration, GetCurrentStateName().ToString());
+}
+
+void UCharacterAnimInstance::HandleAnimNotifyEnd(const FAnimNotifyEvent& NotifyEvent, const UAnimSequenceBase* NotifySource, const FString& ClipName)
+{
+	(void)NotifySource;
+	HTR_LOG(Info, "[CharacterAnimInstance] NotifyState End '{}' from '{}' (State: {})",
+		NotifyEvent.NotifyName.ToString(), ClipName, GetCurrentStateName().ToString());
+}

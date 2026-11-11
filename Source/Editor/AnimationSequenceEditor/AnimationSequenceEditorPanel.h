@@ -40,7 +40,15 @@ private:
 	void DrawPlaybackControls();
 	void DrawAnimationTimeline();
 	void DrawNotifyTrack(ImDrawList* Draw, const ImVec2& Min, const ImVec2& Max);
-	int32 HitTestNotify(float MouseX, float MouseY, const ImVec2& LaneMin, const ImVec2& LaneMax) const;
+	enum class ENotifyDragMode : uint8
+	{
+		None,
+		Move,
+		ResizeEnd
+	};
+
+	int32 HitTestNotify(float MouseX, float MouseY, const ImVec2& LaneMin, const ImVec2& LaneMax, ENotifyDragMode* OutPart = nullptr) const;
+	int32 AddNotifyEvent(const char* InName, float InTriggerTime, float InDuration);
 	void SelectNotify(int32 Index);
 	void TogglePlayback();
 	void StepFrame(int32 Direction);
@@ -67,7 +75,9 @@ private:
 	// AnimNotify 편집 상태
 	int32 SelectedNotifyIndex = INDEX_NONE;
 	int32 DraggingNotifyIndex = INDEX_NONE;
+	ENotifyDragMode DragMode = ENotifyDragMode::None;
 	float PendingNotifyTime = 0.0f;
+	float NewNotifyDuration = 0.0f;
 	char NewNotifyName[128] = "Footstep";
 	char EditNotifyName[128] = "";
 

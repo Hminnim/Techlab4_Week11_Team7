@@ -26,6 +26,11 @@ struct FAnimNotifyEvent
 	{
 		return (Duration > 0.0f) ? (TriggerTime + Duration) : TriggerTime;
 	}
+
+	bool IsNotifyState() const
+	{
+		return Duration > 0.0f;
+	}
 };
 
 struct FRawAnimSequenceTrack

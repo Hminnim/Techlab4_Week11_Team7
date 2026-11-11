@@ -47,6 +47,64 @@ namespace
 	struct FLuaClickBinding { AActor* Owner; FLuaWidgetRef Button; };
 	TArray<FLuaClickBinding> ClickBindings;
 
+	struct FLuaAnimNotifyBinding
+	{
+		AActor* Owner = nullptr;
+		lua_State* LuaState = nullptr;
+		FLuaComponentRef Component;
+		uint32 InstanceId = 0;
+		FName NotifyName;
+		bool bIsState = false;
+		FDelegateHandle Handles[3]{};
+	};
+	TArray<FLuaAnimNotifyBinding> AnimNotifyBindings;
+
+	template <typename TPredicate>
+	void UnbindMatchingAnimNotifies(TPredicate&& Predicate)
+	{
+		for (int32 i = AnimNotifyBindings.Num() - 1; i >= 0; --i)
+		{
+			const FLuaAnimNotifyBinding& Binding = AnimNotifyBindings[i];
+			if (!Predicate(Binding)) continue;
+
+			if (auto* Skel = Cast<USkeletalMeshComponent>(Binding.Component.Get()))
+			{
+				if (UAnimInstance* AnimInst = Skel->GetAnimInstance(); AnimInst && AnimInst->GetUUID() == Binding.InstanceId)
+				{
+					if (!Binding.bIsState)
+					{
+						if (TUniquePtr<FAnimNotifyDelegate>* Found = AnimInst->ExternalNotifyHandlers.Find(Binding.NotifyName))
+						{
+							if (*Found) (*Found)->Remove(Binding.Handles[0]);
+						}
+					}
+					else if (TUniquePtr<FAnimNotifyStateHandlers>* Found = AnimInst->ExternalNotifyStateHandlers.Find(Binding.NotifyName))
+					{
+						if (*Found)
+						{
+							if (Binding.Handles[0]) (*Found)->OnBegin.Remove(Binding.Handles[0]);
+							if (Binding.Handles[1]) (*Found)->OnTick.Remove(Binding.Handles[1]);
+							if (Binding.Handles[2]) (*Found)->OnEnd.Remove(Binding.Handles[2]);
+						}
+					}
+				}
+			}
+			AnimNotifyBindings.RemoveAt(i);
+		}
+	}
+
+	template <typename... TArgs>
+	void InvokeLuaNotifyFn(const FLuaActorRef& Ref, const sol::main_protected_function& Fn, const char* ContextName, TArgs&&... Args)
+	{
+		if (!Ref.Get()) return;
+		sol::protected_function_result Res = Fn(std::forward<TArgs>(Args)...);
+		if (!Res.valid())
+		{
+			sol::error Err = Res;
+			HTR_LOG(Error, "[Lua] {} error: {}", ContextName, Err.what());
+		}
+	}
+
 	TArray<FLuaActorRef> PendingDestroies;
 
 	AActor* OwnerFromEnv(sol::this_environment& ThisEnv)
@@ -515,6 +573,10 @@ namespace
 
 		TUniquePtr<UCharacterAnimInstance> Instance(NewObject<UCharacterAnimInstance>(Component));
 		if (!Instance->ConfigureGraph(std::move(*Binding->PendingGraph))) return false;
+		UnbindMatchingAnimNotifies([OwnerPtr = Binding->Owner.Ptr](const FLuaAnimNotifyBinding& NotifyBinding)
+		{
+			return NotifyBinding.Owner == OwnerPtr;
+		});
 		Binding->InstalledInstanceId = Instance->GetUUID();
 		Component->SetAnimInstance(std::move(Instance));
 		Binding->PendingGraph.reset();
@@ -607,6 +669,10 @@ namespace
 		{
 			throw sol::error("Cannot configure character animations. Each clip must have a positive duration.");
 		}
+		UnbindMatchingAnimNotifies([OwnerPtr = Ref.Ptr](const FLuaAnimNotifyBinding& NotifyBinding)
+		{
+			return NotifyBinding.Owner == OwnerPtr;
+		});
 		Component.SetAnimInstance(std::move(Instance));
 		RemovePlaybackGraphs(Ref.UUID);
 		CharacterAttackRules.Remove(Ref.UUID);
@@ -632,24 +698,86 @@ namespace
 			"RequestAnimJump", [](const FLuaActorRef& Ref) { return CharacterAnimationOf(Ref).RequestJump(); },
 			"NotifyAnimLanded", [](const FLuaActorRef& Ref) { CharacterAnimationOf(Ref).NotifyLanded(); },
 			"SetRestartHitOnReentry", [](const FLuaActorRef& Ref, bool bEnabled) { CharacterAnimationOf(Ref).SetRestartHitOnReentry(bEnabled); },
-			"BindAnimNotify", [](const FLuaActorRef& Ref, const FString& NotifyName, sol::protected_function Callback)
+			"BindAnimNotify", [](const FLuaActorRef& Ref, const FString& NotifyName, sol::protected_function Callback, sol::this_main_state MainState)
 			{
 				if (NotifyName.empty() || !Callback.valid())
 					throw sol::error("BindAnimNotify requires a non-empty notify name and a valid function.");
-				UAnimInstance* AnimInst = SkeletalMeshComponentOf(Ref).GetAnimInstance();
+				USkeletalMeshComponent& Comp = SkeletalMeshComponentOf(Ref);
+				UAnimInstance* AnimInst = Comp.GetAnimInstance();
 				if (!AnimInst)
 					throw sol::error("Configure character animations or start an anim graph before calling BindAnimNotify.");
 				sol::main_protected_function MainFn = std::move(Callback);
-				AnimInst->AddExternalNotifyHandler(FName(NotifyName), [Ref, MainFn = std::move(MainFn)]()
+				const FName Key(NotifyName);
+				const FDelegateHandle Handle = AnimInst->AddExternalNotifyHandler(Key, [Ref, MainFn = std::move(MainFn)]()
 				{
-					if (!Ref.Get()) return;
-					sol::protected_function_result Res = MainFn();
-					if (!Res.valid())
-					{
-						sol::error Err = Res;
-						HTR_LOG(Error, "[Lua] BindAnimNotify error: {}", Err.what());
-					}
+					InvokeLuaNotifyFn(Ref, MainFn, "BindAnimNotify");
 				});
+				FLuaAnimNotifyBinding Record;
+				Record.Owner = Ref.Ptr;
+				Record.LuaState = MainState;
+				Record.Component = FLuaComponentRef::Make(&Comp);
+				Record.InstanceId = AnimInst->GetUUID();
+				Record.NotifyName = Key;
+				Record.bIsState = false;
+				Record.Handles[0] = Handle;
+				AnimNotifyBindings.Add(std::move(Record));
+			},
+			"BindAnimNotifyState", [](const FLuaActorRef& Ref, const FString& NotifyName,
+				sol::optional<sol::protected_function> OnBegin,
+				sol::optional<sol::protected_function> OnTick,
+				sol::optional<sol::protected_function> OnEnd,
+				sol::this_main_state MainState)
+			{
+				if (NotifyName.empty())
+					throw sol::error("BindAnimNotifyState requires a non-empty notify name.");
+				USkeletalMeshComponent& Comp = SkeletalMeshComponentOf(Ref);
+				UAnimInstance* AnimInst = Comp.GetAnimInstance();
+				if (!AnimInst)
+					throw sol::error("Configure character animations or start an anim graph before calling BindAnimNotifyState.");
+
+				const FName Key(NotifyName);
+				FAnimNotifyStateHandlers& Handlers = AnimInst->GetOrAddNotifyStateHandlers(Key);
+
+				FLuaAnimNotifyBinding Record;
+				Record.Owner = Ref.Ptr;
+				Record.LuaState = MainState;
+				Record.Component = FLuaComponentRef::Make(&Comp);
+				Record.InstanceId = AnimInst->GetUUID();
+				Record.NotifyName = Key;
+				Record.bIsState = true;
+
+				if (OnBegin && OnBegin->valid())
+				{
+					sol::main_protected_function Fn = std::move(*OnBegin);
+					Record.Handles[0] = Handlers.OnBegin.Add([Ref, Fn = std::move(Fn)](const FName& Name, const FString& Clip, float Duration)
+					{
+						InvokeLuaNotifyFn(Ref, Fn, "BindAnimNotifyState(Begin)", Name.ToString(), Clip, Duration);
+					});
+				}
+				if (OnTick && OnTick->valid())
+				{
+					sol::main_protected_function Fn = std::move(*OnTick);
+					Record.Handles[1] = Handlers.OnTick.Add([Ref, Fn = std::move(Fn)](const FName& Name, const FString& Clip, float DeltaTime)
+					{
+						InvokeLuaNotifyFn(Ref, Fn, "BindAnimNotifyState(Tick)", Name.ToString(), Clip, DeltaTime);
+					});
+				}
+				if (OnEnd && OnEnd->valid())
+				{
+					sol::main_protected_function Fn = std::move(*OnEnd);
+					Record.Handles[2] = Handlers.OnEnd.Add([Ref, Fn = std::move(Fn)](const FName& Name, const FString& Clip)
+					{
+						InvokeLuaNotifyFn(Ref, Fn, "BindAnimNotifyState(End)", Name.ToString(), Clip);
+					});
+				}
+
+				AnimNotifyBindings.Add(std::move(Record));
+			},
+			"IsAnimNotifyStateActive", [](const FLuaActorRef& Ref, const FString& NotifyName) -> bool
+			{
+				if (NotifyName.empty()) return false;
+				const UAnimInstance* AnimInst = SkeletalMeshComponentOf(Ref).GetAnimInstance();
+				return AnimInst && AnimInst->IsNotifyStateActive(FName(NotifyName));
 			},
 
 			"PlaySequence", [](const FLuaActorRef& Ref) { if (ULevelSequencePlayer* P = SequencePlayerOf(Ref)) P->Play(); },
@@ -1487,6 +1615,11 @@ namespace FLuaBindings
 			if (AnimStateMachines[Index]->LuaState == Lua.lua_state())
 				AnimStateMachines.RemoveAt(Index);
 		}
+
+		UnbindMatchingAnimNotifies([&](const FLuaAnimNotifyBinding& Binding)
+		{
+			return Binding.LuaState == Lua.lua_state();
+		});
 	}
 
 	void Register(sol::state& Lua)
@@ -1525,6 +1658,11 @@ namespace FLuaBindings
 	void ReleaseCallbacks(AActor* Owner)
 	{
 		if (Owner) CharacterAttackRules.Remove(Owner->GetUUID());
+
+		UnbindMatchingAnimNotifies([Owner](const FLuaAnimNotifyBinding& Binding)
+		{
+			return Binding.Owner == Owner;
+		});
 
 		for (int32 Index = AnimStateMachines.Num() - 1; Index >= 0; --Index)
 		{

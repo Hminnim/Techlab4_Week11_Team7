@@ -5,6 +5,8 @@
 #include "Components/SceneComponent.h"
 #include "Components/ParticleSubUVComponent.h"
 #include "Components/ExponentialHeightFogComponent.h"
+#include "Components/SkeletalMeshComponent.h"
+#include "Engine/Classes/Animation/AnimInstance.h"
 #include "Core/EngineLog.h"
 #include "UObject/Object.h"
 
@@ -64,6 +66,17 @@ void AActor::TickActor(float DeltaTime)
 
 void AActor::EndPlay()
 {
+	for (UActorComponent* Component : Components)
+	{
+		if (USkeletalMeshComponent* SkelComp = Cast<USkeletalMeshComponent>(Component))
+		{
+			if (UAnimInstance* AnimInst = SkelComp->GetAnimInstance())
+			{
+				AnimInst->EndActiveNotifyStates();
+			}
+		}
+	}
+
 	if (!Script)
 		return;
 
@@ -448,6 +461,24 @@ void AActor::NotifyAnimNotify(const FString& NotifyName, const FString& ClipName
 {
 	if (Script)
 		Script->Call("OnAnimNotify", NotifyName, ClipName);
+}
+
+void AActor::NotifyAnimNotifyBegin(const FString& NotifyName, const FString& ClipName, float Duration)
+{
+	if (Script)
+		Script->Call("OnAnimNotifyBegin", NotifyName, ClipName, Duration);
+}
+
+void AActor::NotifyAnimNotifyTick(const FString& NotifyName, const FString& ClipName, float DeltaTime)
+{
+	if (Script)
+		Script->Call("OnAnimNotifyTick", NotifyName, ClipName, DeltaTime);
+}
+
+void AActor::NotifyAnimNotifyEnd(const FString& NotifyName, const FString& ClipName)
+{
+	if (Script)
+		Script->Call("OnAnimNotifyEnd", NotifyName, ClipName);
 }
 
 bool AActor::IsOverlappingActor(const AActor* Other) const

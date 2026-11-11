@@ -36,6 +36,8 @@ public:
 	void NativeInitializeAnimation() override;
 	void NativeUpdateAnimation(float DeltaSeconds) override;
 	void HandleAnimNotify(const FAnimNotifyEvent& NotifyEvent, const UAnimSequenceBase* NotifySource, const FString& ClipName) override;
+	void HandleAnimNotifyBegin(const FAnimNotifyEvent& NotifyEvent, const UAnimSequenceBase* NotifySource, const FString& ClipName, float TotalDuration) override;
+	void HandleAnimNotifyEnd(const FAnimNotifyEvent& NotifyEvent, const UAnimSequenceBase* NotifySource, const FString& ClipName) override;
 
 	void SetSpeed(float InSpeed) { Speed = InSpeed; }
 	float GetSpeed() const { return Speed; }

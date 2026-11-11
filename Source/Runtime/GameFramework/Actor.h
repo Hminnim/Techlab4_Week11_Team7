@@ -85,6 +85,9 @@ public:
 	virtual void NotifyHit(AActor* OtherActor);
 	virtual void NotifyDeath(AActor* OtherActor);
 	virtual void NotifyAnimNotify(const FString& NotifyName, const FString& ClipName);
+	virtual void NotifyAnimNotifyBegin(const FString& NotifyName, const FString& ClipName, float Duration);
+	virtual void NotifyAnimNotifyTick(const FString& NotifyName, const FString& ClipName, float DeltaTime);
+	virtual void NotifyAnimNotifyEnd(const FString& NotifyName, const FString& ClipName);
 
 	// 담당: C
 	bool IsOverlappingActor(const AActor* Other) const;

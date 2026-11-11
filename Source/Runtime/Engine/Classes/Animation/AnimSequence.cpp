@@ -176,11 +176,16 @@ void UAnimSequenceBase::GetAnimNotifiesFromDeltaPosition(const float& PreviousPo
 	}
 	else
 	{
+		const float PlayLength = GetPlayLength();
 		for(int32 NotifyIndex = 0; NotifyIndex < Notifies.Num(); ++NotifyIndex)
 		{
 			const FAnimNotifyEvent& AnimNotifyEvent = Notifies[NotifyIndex];
 			const float NotifyStartTime = AnimNotifyEvent.GetTriggerTime();
-			const float NotifyEndTime = AnimNotifyEvent.GetEndTriggerTime();
+			float NotifyEndTime = AnimNotifyEvent.GetEndTriggerTime();
+			if (PlayLength > 0.0f)
+			{
+				NotifyEndTime = FMath::Min(NotifyEndTime, PlayLength);
+			}
 
 			if((NotifyStartTime <= CurrentPosition) && (NotifyEndTime > PreviousPosition))
 			{

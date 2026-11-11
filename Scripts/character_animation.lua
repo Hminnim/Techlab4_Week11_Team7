@@ -110,3 +110,16 @@ end
 function OnAnimNotify(notifyName, clipName)
     print("[Lua AnimNotify] '" .. tostring(notifyName) .. "' from clip '" .. tostring(clipName) .. "'")
 end
+
+function OnAnimNotifyBegin(notifyName, clipName, duration)
+    print(string.format("[Lua AnimNotifyState] Begin '%s' from clip '%s' (Duration: %.3fs)",
+        tostring(notifyName), tostring(clipName), tonumber(duration) or 0))
+end
+
+-- function OnAnimNotifyTick(notifyName, clipName, dt)
+-- end
+
+function OnAnimNotifyEnd(notifyName, clipName)
+    print(string.format("[Lua AnimNotifyState] End '%s' from clip '%s'",
+        tostring(notifyName), tostring(clipName)))
+end

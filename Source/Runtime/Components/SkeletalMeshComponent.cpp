@@ -29,6 +29,10 @@ USkeletalMeshComponent::~USkeletalMeshComponent() = default;
 
 void USkeletalMeshComponent::SetAnimInstance(TUniquePtr<UAnimInstance> InInstance)
 {
+	if (AnimInstance)
+	{
+		AnimInstance->EndActiveNotifyStates();
+	}
 	AnimInstance = std::move(InInstance);
 	if (AnimInstance)
 	{
