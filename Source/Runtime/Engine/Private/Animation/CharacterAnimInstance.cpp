@@ -38,6 +38,29 @@ bool UCharacterAnimInstance::ConfigureAnimations(UAnimSequence* Idle, UAnimSeque
 		return false;
 	}
 
+	// AnimNotify 테스트: 클립에 테스트 이벤트 등록 (공유 에셋 중복 방지)
+	if (Attack->Notifies.IsEmpty())
+	{
+		FAnimNotifyEvent AttackEvent;
+		AttackEvent.TriggerTime = Attack->GetPlayLength() * 0.4f;
+		AttackEvent.NotifyName = FName("Attack_Slash");
+		Attack->Notifies.Add(AttackEvent);
+	}
+	if (Hit->Notifies.IsEmpty())
+	{
+		FAnimNotifyEvent HitEvent;
+		HitEvent.TriggerTime = Hit->GetPlayLength() * 0.2f;
+		HitEvent.NotifyName = FName("Hit_Impact");
+		Hit->Notifies.Add(HitEvent);
+	}
+	if (Jump.Land && Jump.Land->Notifies.IsEmpty())
+	{
+		FAnimNotifyEvent LandEvent;
+		LandEvent.TriggerTime = 0.05f;
+		LandEvent.NotifyName = FName("Jump_Landing");
+		Jump.Land->Notifies.Add(LandEvent);
+	}
+
 	auto AttackPlayer = MakeSequencePlayer(Attack, false);
 	auto HitPlayer = MakeSequencePlayer(Hit, false);
 	const auto IsAttackFinished = MakeClipFinishedRule(AttackPlayer.get());
@@ -181,4 +204,11 @@ void UCharacterAnimInstance::SetRestartHitOnReentry(bool bEnabled)
 	{
 		StateMachine.SetStateRestartOnReentry(HitState, bEnabled);
 	}
+}
+
+void UCharacterAnimInstance::HandleAnimNotify(const FAnimNotifyEvent& NotifyEvent, const UAnimSequenceBase* NotifySource, const FString& ClipName)
+{
+	(void)NotifySource;
+	HTR_LOG(Info, "[CharacterAnimInstance] Received Notify '{}' from '{}' (State: {})",
+		NotifyEvent.NotifyName.ToString(), ClipName, GetCurrentStateName().ToString());
 }

@@ -2,11 +2,19 @@
 
 #include "Engine/Classes/Animation/AnimationAsset.h"
 #include "Engine/Classes/Animation/AnimTypes.h"
+#include "AnimNotifyQueue.h"
 #include "AnimSequence.generated.h"
 
 typedef TArray<FTransform> FTransformArrayA2;
 
 struct FCompactPose;
+
+enum ETypeAdvanceAnim
+{
+	Default,
+	Finished,
+	Looped
+};
 
 class IAnimationDataModel
 {
@@ -59,6 +67,11 @@ public:
 	virtual float GetPlayLength() const override { return DataModel ? DataModel->GetPlayLength() : 0.0f; }
 	inline FFrameRate GetSamplingFrameRate() const { return DataModel ? DataModel->GetFrameRate() :  FFrameRate(30, 1); }
 	inline int32 GetNumberOfSampledKeys() const { return DataModel ? DataModel->GetNumberOfKeys() : 0; }
+
+	void GetAnimNotifies(const float& StartTime, const float& DeltaTime, FAnimNotifyContext& NotifyContext) const;
+	virtual void GetAnimNotifiesFromDeltaPosition(const float& PreviousPosition, const float& CurrentPosition, FAnimNotifyContext& NotifyContext) const;
+
+	void TickAssetPlayer(float& InOutTime, float DeltaMove, bool bLooping, FAnimNotifyQueue* OutNotifyQueue) const;
 
 public:
 	TArray<FAnimNotifyEvent> Notifies;

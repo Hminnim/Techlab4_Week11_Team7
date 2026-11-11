@@ -101,6 +101,7 @@ public:
 	int32 LoadFbxAnimations(const FString& Key, const FString& Path, FString& OutError);
 	// 같은 FBX 아래에 이미 등록된 클립을 조회한다. 임포트나 에셋 생성은 하지 않는다.
 	void GetFbxAnimationAssets(const FString& FbxKey, TArray<FFbxAnimationAsset>& OutAssets) const;
+	void SyncAnimNotifiesByClipName(const UAnimSequence* SourceSequence);
 
 	FLODGenerateResult GenerateStaticMeshLODs(UStaticMesh& Mesh,const FLODGenerateRequest& Request);
 

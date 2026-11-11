@@ -6,6 +6,7 @@
 #include "Math/Vector.h"
 #include "Math/Quat.h"
 #include "MovieScene/MovieSceneFrameTime.h"
+#include "Math/Transform.h"
 
 using FVector3f = FVector;
 using FQuat4f = FQuat;
@@ -15,6 +16,16 @@ struct FAnimNotifyEvent
 	float TriggerTime = 0.0f;
 	float Duration = 0.0f; // 0 이면 한 번, 0 보다 크면 구간(NotifyState)
 	FName NotifyName;
+
+	float GetTriggerTime() const
+	{
+		return TriggerTime;
+	}
+	 
+	float GetEndTriggerTime() const
+	{
+		return (Duration > 0.0f) ? (TriggerTime + Duration) : TriggerTime;
+	}
 };
 
 struct FRawAnimSequenceTrack
@@ -42,4 +53,27 @@ struct FAnimSequenceImportData
 
 struct FAnimationCurveData
 {
+};
+
+// 그래프를 한번 갱신하는 동안 재생 노드들이 추출한 루트 모션을 모은다.
+struct FRootMotionMovementParams
+{
+	bool bHasRootMotion = false;
+
+	void AccumulateWithBlend(const FTransform& InTransform, float InBlendWeight)
+	{
+		RootMotionTransform.Location += InTransform.Location * InBlendWeight;
+		bHasRootMotion = true;
+	}
+
+	void Clear()
+	{
+		bHasRootMotion = false;
+		RootMotionTransform = FTransform();
+	}
+
+	const FTransform& GetRootMotionTransform() const { return RootMotionTransform; }
+
+private:
+	FTransform RootMotionTransform;
 };

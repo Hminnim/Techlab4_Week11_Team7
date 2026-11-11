@@ -1,5 +1,6 @@
 #include "EnginePCH.h"
 #include "AnimNode_SequencePlayer.h"
+#include "Engine/Classes/Animation/AnimInstance.h"
 
 void FAnimNode_SequencePlayer::Initialize(const FAnimationInitializeContext& Context)
 {
@@ -13,27 +14,9 @@ void FAnimNode_SequencePlayer::Update(const FAnimationUpdateContext& Context)
 		return;
 	}
 
-	CurrentPlayTime += Context.GetDeltaTime() * GetEffectivePlayRate();
-
-	float PlayLength = Sequence->GetPlayLength();
-	if(bLoopAnimation)
-	{
-		if(PlayLength > 0.0f)
-		{
-			while(CurrentPlayTime >= PlayLength)
-			{
-				CurrentPlayTime -= PlayLength;
-			}
-			while(CurrentPlayTime < 0.0f)
-			{
-				CurrentPlayTime += PlayLength;
-			}
-		}
-	}
-	else
-	{
-		CurrentPlayTime  = FMath::Clamp(CurrentPlayTime, 0.0f, PlayLength);
-	}
+	const float DeltaMove = Context.GetDeltaTime() * GetEffectivePlayRate();
+	FAnimNotifyQueue* NotifyQueue = Context.GetAnimInstance() ? &Context.GetAnimInstance()->NotifyQueue : nullptr;
+	Sequence->TickAssetPlayer(CurrentPlayTime, DeltaMove, bLoopAnimation, NotifyQueue);
 }
 
 void FAnimNode_SequencePlayer::Evaluate(FPoseContext& Output)

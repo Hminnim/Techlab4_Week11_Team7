@@ -632,6 +632,25 @@ namespace
 			"RequestAnimJump", [](const FLuaActorRef& Ref) { return CharacterAnimationOf(Ref).RequestJump(); },
 			"NotifyAnimLanded", [](const FLuaActorRef& Ref) { CharacterAnimationOf(Ref).NotifyLanded(); },
 			"SetRestartHitOnReentry", [](const FLuaActorRef& Ref, bool bEnabled) { CharacterAnimationOf(Ref).SetRestartHitOnReentry(bEnabled); },
+			"BindAnimNotify", [](const FLuaActorRef& Ref, const FString& NotifyName, sol::protected_function Callback)
+			{
+				if (NotifyName.empty() || !Callback.valid())
+					throw sol::error("BindAnimNotify requires a non-empty notify name and a valid function.");
+				UAnimInstance* AnimInst = SkeletalMeshComponentOf(Ref).GetAnimInstance();
+				if (!AnimInst)
+					throw sol::error("Configure character animations or start an anim graph before calling BindAnimNotify.");
+				sol::main_protected_function MainFn = std::move(Callback);
+				AnimInst->AddExternalNotifyHandler(FName(NotifyName), [Ref, MainFn = std::move(MainFn)]()
+				{
+					if (!Ref.Get()) return;
+					sol::protected_function_result Res = MainFn();
+					if (!Res.valid())
+					{
+						sol::error Err = Res;
+						HTR_LOG(Error, "[Lua] BindAnimNotify error: {}", Err.what());
+					}
+				});
+			},
 
 			"PlaySequence", [](const FLuaActorRef& Ref) { if (ULevelSequencePlayer* P = SequencePlayerOf(Ref)) P->Play(); },
 			"PauseSequence", [](const FLuaActorRef& Ref) { if (ULevelSequencePlayer* P = SequencePlayerOf(Ref)) P->Pause(); },
@@ -1439,6 +1458,16 @@ namespace FLuaBindings
 				throw sol::error("Cannot load animation '" + Path + "': " + Error);
 			Clip->RateScale = Scale;
 		});
+
+		// 클립 에셋의 루트 모션 사용 여부를 바꾼다. 켜면 root 본 이동이 포즈 대신 액터 이동으로 나간다.
+		Lua.set_function("SetAnimRootMotion", [](const FString& Path, const FString& Take, bool bEnabled)
+			{
+				FString Error;
+				UAnimSequence* Clip = UAssetManager::Get().LoadFbxAnimSequence(Path, Error, Take);
+				if (!Clip)
+					throw sol::error("Cannot load animation '" + Path + "': " + Error);
+				Clip->bEnableRootMotion = bEnabled;
+			});
 	}
 
 	void ReleaseAnimationStateMachines(sol::state& Lua)
