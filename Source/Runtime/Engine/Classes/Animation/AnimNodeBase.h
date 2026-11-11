@@ -65,8 +65,7 @@ public:
 protected:
 	bool bIsActive = true;
 	int32 CurrentNodeId = -1;
-	int32 PreviousNodeId = -1;
-	UAnimInstance* AnimInstance = nullptr;
+	int32 PreviousNodeId = -1;	
 };
 
 struct FAnimationInitializeContext : public FAnimationBaseContext

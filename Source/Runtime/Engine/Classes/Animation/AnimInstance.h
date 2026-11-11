@@ -24,8 +24,7 @@ class UAnimInstance : public UObject
 public:
 	virtual void NativeInitializeAnimation() {}              // 그래프를 만든다 (한 번)
 	virtual void NativeUpdateAnimation(float DeltaSeconds) {} // 변수를 갱신한다 (매 프레임)	
-
-	void TriggerAnimNotifies(float DeltaSeconds) {}
+	
 	void AccumulateRootMotion(const FTransform& Delta, float Weight) { RootMotion.AccumulateWithBlend(Delta, Weight); }
 	FRootMotionMovementParams ConsumeRootMotion()
 	{
@@ -66,7 +65,7 @@ private:
 UCLASS()
 class UAnimSingleNodeInstance : public UAnimInstance
 {
-	GENERATED_BODY()
+	GENERATED_BODY();
 };
 
 template<typename T>

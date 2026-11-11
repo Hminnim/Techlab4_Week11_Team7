@@ -3,11 +3,6 @@
 
 FAnimationBaseContext::FAnimationBaseContext() = default;
 
-FAnimationBaseContext::FAnimationBaseContext(UAnimInstance* InAnimInstance)
-	: AnimInstance(InAnimInstance)
-{
-}
-
 FAnimationBaseContext::FAnimationBaseContext(FAnimInstanceProxy* InAnimInstanceProxy, FAnimationUpdateSharedContext* InSharedContext)
 	: AnimInstanceProxy(InAnimInstanceProxy)
 	, SharedContext(InSharedContext)

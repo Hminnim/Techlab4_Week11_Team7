@@ -81,8 +81,8 @@ void FAnimNode_BlendSpacePlayer::Update(const FAnimationUpdateContext& Context)
 
                 const float SampleLength = Sample.GetSamplePlayLength();
                 const FTransform RootMotion = Sample.Animation->ExtractRootMotion(
-                    PreviousNormalizedTime * SampleLength,
-                    NormalizedDelta * SampleLength,
+                    PrevNormTime * SampleLength,
+                    DeltaNorm * SampleLength,
                     bLoop
                 );
                 AnimInstance->AccumulateRootMotion(RootMotion, NodeWeight * Data.GetClampedWeight());
