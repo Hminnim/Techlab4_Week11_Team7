@@ -11,11 +11,17 @@
 using FVector3f = FVector;
 using FQuat4f = FQuat;
 
+struct FAnimNotifyTrack
+{
+	FName TrackName;
+};
+
 struct FAnimNotifyEvent
 {
 	float TriggerTime = 0.0f;
 	float Duration = 0.0f; // 0 이면 한 번, 0 보다 크면 구간(NotifyState)
 	FName NotifyName;
+	int32 TrackIndex = 0;
 
 	float GetTriggerTime() const
 	{

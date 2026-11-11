@@ -929,6 +929,7 @@ void UAssetManager::SyncAnimNotifiesByClipName(const UAnimSequence* SourceSequen
 		{
 			if (UAnimSequence* TargetSeq = Cast<UAnimSequence>(Asset))
 			{
+				TargetSeq->NotifyTracks = SourceSequence->NotifyTracks;
 				TargetSeq->Notifies = SourceSequence->Notifies;
 			}
 		}

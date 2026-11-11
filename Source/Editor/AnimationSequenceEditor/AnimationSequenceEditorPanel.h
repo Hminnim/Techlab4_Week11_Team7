@@ -49,7 +49,10 @@ private:
 	void DrawSelectedNotifyInspector();
 	void DrawPlaybackControls();
 	void DrawAnimationTimeline();
-	void DrawNotifyTrack(ImDrawList* Draw, const ImVec2& Min, const ImVec2& Max);
+	void DrawNotifyTrack(ImDrawList* Draw, int32 TrackIndex, const ImVec2& Min, const ImVec2& Max, bool bCanHover);
+	void DrawNotifyContextMenu();
+	void DrawAddNotifyTrackPopup();
+	int32 AddNotifyTrack(const char* InName);
 	enum class ENotifyDragMode : uint8
 	{
 		None,
@@ -57,8 +60,8 @@ private:
 		ResizeEnd
 	};
 
-	int32 HitTestNotify(float MouseX, float MouseY, const ImVec2& LaneMin, const ImVec2& LaneMax, ENotifyDragMode* OutPart = nullptr) const;
-	int32 AddNotifyEvent(const char* InName, float InTriggerTime, float InDuration);
+	int32 HitTestNotify(float MouseX, float MouseY, int32 TrackIndex, const ImVec2& LaneMin, const ImVec2& LaneMax, ENotifyDragMode* OutPart = nullptr) const;
+	int32 AddNotifyEvent(const char* InName, float InTriggerTime, float InDuration, int32 TrackIndex = INDEX_NONE);
 	void SelectNotify(int32 Index);
 	void TogglePlayback();
 	void StepFrame(int32 Direction);
@@ -89,10 +92,15 @@ private:
 
 	// AnimNotify 편집 상태
 	int32 SelectedNotifyIndex = INDEX_NONE;
+	int32 SelectedNotifyTrackIndex = 0;
+	int32 PendingNotifyTrackIndex = 0;
+	bool bScrollToSelectedTrack = false;
 	int32 DraggingNotifyIndex = INDEX_NONE;
 	ENotifyDragMode DragMode = ENotifyDragMode::None;
 	float PendingNotifyTime = 0.0f;
+	float NotifyDragOffset = 0.0f;
 	float NewNotifyDuration = 0.0f;
+	char NewNotifyTrackName[128] = "";
 	char NewNotifyName[128] = "Footstep";
 	char EditNotifyName[128] = "";
 
