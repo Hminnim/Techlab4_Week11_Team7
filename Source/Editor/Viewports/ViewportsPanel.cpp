@@ -417,7 +417,7 @@ void FViewportsPanel::DrawStatOverlay(ImDrawList* DrawList, const ImVec2& ViewMi
 
 	if (FStatOverlay::IsEnabled(EStatFlags::Profile)) {
 		ProfileLines.Add({USkeletalMeshComponent::IsGPUSkinningEnabled()
-			? "Skinning: GPU (global)" : "Skinning: CPU (global)", TitleColor});
+			? "Skinning: GPU " : "Skinning: CPU ", TitleColor});
 		ProfileLines.Add({"Skinning CPU (ms)", TitleColor, {"Last", "Avg", "Max"}});
 		const TStatId CPUStats[] = {
 			EditorStats::STAT_SkinningCPUUpdate,
@@ -436,7 +436,7 @@ void FViewportsPanel::DrawStatOverlay(ImDrawList* DrawList, const ImVec2& ViewMi
 		ProfileLines.Add({"Skeletal Draw GPU (ms)", TitleColor, {"Last", "Avg", "Max"}});
 		const FCycleStatData* Data = Renderer ? &Renderer->GetSkinningDrawGPUStats() : nullptr;
 		const bool bHasSamples = Data && Data->CallCount > 0;
-		FProfileStatLine Line{"  Base / Depth / Shadow / Outline", ValueColor};
+		FProfileStatLine Line{"  Skeletal Mesh Draw", ValueColor};
 		Line.Values[0] = bHasSamples ? std::format("{:.2f}", Data->GetLastMs()) : "--";
 		Line.Values[1] = bHasSamples ? std::format("{:.2f}", Data->GetRecentAverageMs()) : "--";
 		Line.Values[2] = bHasSamples ? std::format("{:.2f}", Data->GetMaxMs()) : "--";
