@@ -74,6 +74,8 @@ public:
 	void TickAssetPlayer(float& InOutTime, float DeltaMove, bool bLooping, FAnimNotifyQueue* OutNotifyQueue) const;
 
 public:
+	// 기존 이벤트는 기본 트랙 0에 배치한다.
+	TArray<FAnimNotifyTrack> NotifyTracks = { { FName("1") } };
 	TArray<FAnimNotifyEvent> Notifies;
 	float RateScale = 1.0f;
 

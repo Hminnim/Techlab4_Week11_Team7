@@ -14,9 +14,19 @@ void FAnimNode_SequencePlayer::Update(const FAnimationUpdateContext& Context)
 		return;
 	}
 
-	const float DeltaMove = Context.GetDeltaTime() * GetEffectivePlayRate();
-	FAnimNotifyQueue* NotifyQueue = Context.GetAnimInstance() ? &Context.GetAnimInstance()->NotifyQueue : nullptr;
-	Sequence->TickAssetPlayer(CurrentPlayTime, DeltaMove, bLoopAnimation, NotifyQueue);
+	const float MoveDelta = Context.GetDeltaTime() * GetEffectivePlayRate();
+	UAnimInstance* AnimInstance = Context.GetAnimInstance();
+
+	FAnimNotifyQueue* NotifyQueue = AnimInstance ? &Context.GetAnimInstance()->NotifyQueue : nullptr;
+
+	if (AnimInstance && Sequence->bEnableRootMotion)
+	{
+		const float Weight = Context.GetFinalBlendWeight() * Context.GetRootMotionWeightModifier();
+		const FTransform RootMotion = Sequence->ExtractRootMotion(CurrentPlayTime, MoveDelta, bLoopAnimation);
+		AnimInstance->AccumulateRootMotion(RootMotion, Weight);
+	}
+
+	Sequence->TickAssetPlayer(CurrentPlayTime, MoveDelta, bLoopAnimation, NotifyQueue);
 }
 
 void FAnimNode_SequencePlayer::Evaluate(FPoseContext& Output)
